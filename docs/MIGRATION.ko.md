@@ -1,7 +1,8 @@
 # 기존 운영에서 새 구조로 이전
 
-이 디렉터리는 별도 준비본이다. 기존 `/opt/infra/compose.yaml`, 두 앱 소스, 실행 중인 컨테이너,
-볼륨, DB, 비밀값, 기존 패치는 수정하지 않았다. 이 문서는 운영 전환 절차이며 자동 실행하지 않는다.
+이 문서는 기존 배포에서 패치 기반 저장소로 운영을 전환하는 절차다.
+전환 후에는 새 저장소의 `scripts/compose.sh`로 관리한다. 기존 소스·설정은 복구용으로 보존한다.
+서버별 전환 기록과 비밀값을 포함하는 백업은 Git에서 제외된 `deployment/backups/`에 보관한다.
 
 ## 변경과 검증 범위
 
@@ -58,3 +59,24 @@ Compose 실행은 `./scripts/compose.sh`를 사용한다.
 디렉터리 읽기·쓰기·실행 권한을 줘야 로그 압축·삭제가 동작한다.
 `waf-audit.log`는 web의 보조 그룹(GID 10000)이 쓸 수 있어야 읽은 로그를 비울 수 있다.
 운영 파일 권한은 이번 소스 갱신에서 변경하지 않는다.
+
+## 전환 후 운영 확인
+
+```sh
+./scripts/compose.sh ps
+python3 deployment/validate.py --live
+systemctl status cpm-tailnet-observer.timer
+```
+
+`--live`는 Authentik relay를 포함한 서비스 계약, 실제 네트워크 namespace 연결과
+두 web의 ClickHouse 연결을 검사한다. 추가로 두 관리 UI 로그인과 인증된 API 조회,
+OAuth 제공자 discovery, 기존 DB 무결성·주요 데이터 개수·프록시 호스트 보존을 확인한다.
+OAuth discovery 성공만으로 실제 사용자의 SSO 로그인·역할 동기화까지 검증되지는 않는다.
+
+서비스 중지 후 모든 named volume을 백업하고 체크섬을 기록해야 한다. 복구용 Compose에는
+프로파일 서비스를 포함하고 이미지 ID를 고정한다. 기존 DB 복원은 전환 이후 데이터를
+되돌리므로, 장애 원인과 스키마 호환성을 확인한 후 별도로 판단한다.
+
+관측기 systemd unit의 `ExecStart`와 `ReadWritePaths`를 새 저장소의 절대 경로로 바꾸고
+`systemctl daemon-reload` 후 service와 timer를 시작한다. 전환 완료 후 모든 컨테이너의
+Compose 작업 경로와 bind mount가 새 저장소를 가리키는지 확인한다.

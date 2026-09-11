@@ -50,7 +50,7 @@ def main():
     assert analytics <= {"icpm-clickhouse", "pcpm-clickhouse"}
     geoip = {name for name in services if name.endswith("-geoipupdate")}
     assert geoip <= {"icpm-geoipupdate", "pcpm-geoipupdate"}
-    assert len(services) == 12 + len(analytics) + len(geoip), "Unexpected service count"
+    assert len(services) == 13 + len(analytics) + len(geoip), "Unexpected service count"
     # Public SSO issuer and the two narrowly scoped TLS paths must move together.
     sso_host = site["SSO_HOST"]
     for prefix, address in (("icpm", site["PUBLIC_BIND_IP"]), ("pcpm", "172.30.81.2")):
@@ -88,6 +88,16 @@ def main():
             assert "--advertise-exit-node=false" in service["environment"]["TS_EXTRA_ARGS"]
             if not service["environment"].get("TS_AUTHKEY"):
                 print("NOTE: Fill TS_AUTHKEY in the root .env before first start.")
+        elif name == "pcpm-authentik-relay":
+            assert not service.get("ports") and not service.get("networks")
+            assert not service.get("cap_add")
+            assert set(service["cap_drop"]) == {"ALL"}
+            assert service["network_mode"] == "service:pcpm-caddy-net"
+            assert service["read_only"]
+            assert service["depends_on"]["pcpm-caddy-net"]["condition"] == "service_healthy"
+            assert service["command"] == ["caddy", "run", "--config", "/etc/caddy/authentik-outpost.Caddyfile", "--adapter", "caddyfile"]
+            assert len(service["volumes"]) == 1 and service["volumes"][0]["read_only"]
+            assert services["pcpm-web"]["depends_on"][name]["condition"] == "service_healthy"
         elif name == "pcpm-feedback":
             assert not service.get("ports") and not service.get("networks")
             assert not service.get("cap_add")
