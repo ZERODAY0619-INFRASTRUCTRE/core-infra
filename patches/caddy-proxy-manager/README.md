@@ -29,6 +29,7 @@ Current series:
 10. Anubis global/per-host policy, validated runtime settings and rollback
 11. Anubis console toggles and challenge settings
 12. Non-root Anubis runtime supervisor with health acknowledgements
+13. Anubis controls aligned with shared settings forms
 
 Author: zeroday0619 <escha@zeroday0619.dev>
 

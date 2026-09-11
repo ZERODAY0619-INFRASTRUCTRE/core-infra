@@ -1,14 +1,14 @@
-From f79965e66ef8ce7321577aa2924c680774790e0b Mon Sep 17 00:00:00 2001
+From 8054aa9ff7f3f7e89d22edc6fb16311865eaf4fc Mon Sep 17 00:00:00 2001
 From: zeroday0619 <escha@zeroday0619.dev>
-Date: Fri, 11 Sep 2026 07:44:24 +0000
-Subject: [PATCH 00/12] cpm: update deployment customizations
+Date: Fri, 11 Sep 2026 08:12:35 +0000
+Subject: [PATCH 00/13] cpm: update deployment customizations
 
 Apply the numbered patches in series order to the pinned public
 upstream commit. This series preserves the shared ICPM/PCPM behavior.
 Review each patch and run the deployment and application checks before
 publishing. No review, testing or DCO trailers are synthesized.
 
-zeroday0619 (12):
+zeroday0619 (13):
   oauth: synchronize trusted role claims on account updates
   access: retain the last account in an assigned access list
   auth: validate proxy authentication inputs and transports
@@ -21,6 +21,7 @@ zeroday0619 (12):
   anubis: add scoped controls and transactional runtime settings
   ui: expose Anubis policy and challenge controls
   anubis: supervise runtime changes without Docker access
+  ui: align Anubis controls with shared settings forms
 
  .dockerignore                                 |   3 +
  .../caddy-compatibility-pins.yml              |  77 ++++++
@@ -46,7 +47,7 @@ zeroday0619 (12):
  app/(dashboard)/groups/GroupsClient.tsx       |   2 +-
  .../proxy-hosts/ProxyHostsClient.tsx          |  12 +-
  app/(dashboard)/proxy-hosts/page.tsx          |   2 +
- app/(dashboard)/settings/SettingsClient.tsx   |   9 +-
+ app/(dashboard)/settings/SettingsClient.tsx   |  61 +----
  app/(dashboard)/waf/WafEventsClient.tsx       |  10 +-
  app/StatusPage.tsx                            |  12 +
  app/api/error-feedback/route.ts               |  12 +
@@ -78,8 +79,8 @@ zeroday0619 (12):
  scripts/test-custom.sh                        |   9 +
  src/components/SystemBrand.tsx                |   5 +
  src/components/SystemHeader.tsx               |  17 ++
- src/components/anubis/AnubisSettings.tsx      |  76 ++++++
- src/components/anubis/AnubisToggle.tsx        |  74 ++++++
+ src/components/anubis/AnubisSettings.tsx      | 105 +++++++++
+ src/components/anubis/AnubisToggle.tsx        |  82 +++++++
  .../proxy-hosts/AuthentikFields.tsx           |   5 +-
  .../proxy-hosts/CpmForwardAuthFields.tsx      |   6 +-
  .../proxy-hosts/DnsResolverFields.tsx         |   2 +-
@@ -89,6 +90,7 @@ zeroday0619 (12):
  src/components/proxy-hosts/MtlsConfig.tsx     |   2 +-
  .../UpstreamDnsResolutionFields.tsx           |   2 +-
  src/components/proxy-hosts/WafFields.tsx      |   4 +-
+ src/components/settings/SettingsForm.tsx      |  53 +++++
  src/components/ui/DataTable.tsx               |   2 +
  src/components/ui/PageHeader.tsx              |   6 +-
  src/components/ui/SearchField.tsx             |   2 +-
@@ -142,7 +144,7 @@ zeroday0619 (12):
  tests/unit/api-routes/anubis.test.ts          | 110 +++++++++
  tests/unit/caddy-default-response.test.ts     |  35 ++-
  tests/unit/caddy-location-rules.test.ts       |   2 +-
- 120 files changed, 2381 insertions(+), 403 deletions(-)
+ 121 files changed, 2472 insertions(+), 454 deletions(-)
  create mode 100644 .github/upstream-workflows/caddy-compatibility-pins.yml
  rename .github/{workflows => upstream-workflows}/dependabot-automerge.yml (100%)
  rename .github/{workflows => upstream-workflows}/docker-build-pr.yml (100%)
@@ -171,6 +173,7 @@ zeroday0619 (12):
  create mode 100644 src/components/SystemHeader.tsx
  create mode 100644 src/components/anubis/AnubisSettings.tsx
  create mode 100644 src/components/anubis/AnubisToggle.tsx
+ create mode 100644 src/components/settings/SettingsForm.tsx
  create mode 100644 src/lib/analytics-geo.ts
  create mode 100644 src/lib/anubis-options.ts
  create mode 100644 src/lib/anubis-policy.ts

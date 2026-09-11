@@ -1,7 +1,7 @@
 From f79965e66ef8ce7321577aa2924c680774790e0b Mon Sep 17 00:00:00 2001
 From: zeroday0619 <escha@zeroday0619.dev>
 Date: Fri, 11 Sep 2026 07:37:43 +0000
-Subject: [PATCH 12/12] anubis: supervise runtime changes without Docker access
+Subject: [PATCH 12/13] anubis: supervise runtime changes without Docker access
 
 Run the pinned Anubis binary under a non-root supervisor with a shared
 control volume. Validate bounded settings, retain immutable protocol

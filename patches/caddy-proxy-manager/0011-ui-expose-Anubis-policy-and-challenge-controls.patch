@@ -1,7 +1,7 @@
 From 275cfe20f3106de0c1e6442580e83326787a5e2c Mon Sep 17 00:00:00 2001
 From: zeroday0619 <escha@zeroday0619.dev>
 Date: Fri, 11 Sep 2026 07:37:43 +0000
-Subject: [PATCH 11/12] ui: expose Anubis policy and challenge controls
+Subject: [PATCH 11/13] ui: expose Anubis policy and challenge controls
 
 Add global protection and challenge settings to the security settings
 panel. Provide accessible per-host toggles on desktop and mobile, with

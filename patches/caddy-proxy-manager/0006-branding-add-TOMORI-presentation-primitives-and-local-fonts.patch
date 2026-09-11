@@ -1,7 +1,7 @@
 From b2d4a96c1d53359856bd0de42e5b6cfe93c6780a Mon Sep 17 00:00:00 2001
 From: zeroday0619 <escha@zeroday0619.dev>
 Date: Fri, 11 Sep 2026 07:00:05 +0000
-Subject: [PATCH 06/12] branding: add TOMORI presentation primitives and local
+Subject: [PATCH 06/13] branding: add TOMORI presentation primitives and local
  fonts
 
 Provide the shared visual primitives, typography and local font assets

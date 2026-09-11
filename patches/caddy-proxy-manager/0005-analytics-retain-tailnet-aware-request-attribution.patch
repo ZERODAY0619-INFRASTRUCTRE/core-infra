@@ -1,7 +1,7 @@
 From 2799d0bcd1de7a06d36abaa8d642d97ddcc07218 Mon Sep 17 00:00:00 2001
 From: zeroday0619 <escha@zeroday0619.dev>
 Date: Fri, 11 Sep 2026 07:00:04 +0000
-Subject: [PATCH 05/12] analytics: retain tailnet-aware request attribution
+Subject: [PATCH 05/13] analytics: retain tailnet-aware request attribution
 
 Preserve deployed country attribution and request observation behavior
 across internal and public instances. Keep the analytics regression

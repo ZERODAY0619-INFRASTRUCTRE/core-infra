@@ -8,54 +8,58 @@
   "patches": [
     {
       "file": "0001-oauth-synchronize-trusted-role-claims-on-account-updates.patch",
-      "sha256": "fd62cf9317430d7000e70062dd69e83cc338d208615398836c6a93eaa904e56e"
+      "sha256": "0d265d00fc63de148d874166eb02e9c81ecb1408bf8d794136abadeb070e0e02"
     },
     {
       "file": "0002-access-retain-the-last-account-in-an-assigned-access-list.patch",
-      "sha256": "f84236b4cb87b8bdcd103e14065ca1aae735cc103396384f692253fe01fde651"
+      "sha256": "a7d193efb92ddcaf0e963fc7d7ca8fa01db5230a1018df3be35cf57415908bb4"
     },
     {
       "file": "0003-auth-validate-proxy-authentication-inputs-and-transports.patch",
-      "sha256": "a23967ee51029e3b941209dd5ecc52968574f7705a6d93cbe4a7a680c0545488"
+      "sha256": "d71fddbd3177fd9441141c258a09731cc94e7ff2134aeaf4d0da1855480fcb4e"
     },
     {
       "file": "0004-l4-restrict-web-owned-overrides-to-numeric-port-bindings.patch",
-      "sha256": "855f2f585ec121b751c8d66ce165b07ae04eb1da91adc0f9ef14e81704efb470"
+      "sha256": "925c3dc9c5d2062d090ad5b0c0fb69f3e7f26285d3f826135c834217e87e7e8f"
     },
     {
       "file": "0005-analytics-retain-tailnet-aware-request-attribution.patch",
-      "sha256": "08159206f44f00b874b484e82014f461e2cf894fb14c9dc765b20b79de272c95"
+      "sha256": "cc4959b49b11f79d3d6551da42fda79b32a04fb322e50d0a6322575b5c5051a8"
     },
     {
       "file": "0006-branding-add-TOMORI-presentation-primitives-and-local-fonts.patch",
-      "sha256": "de942b8e5f7da0c193d3c74343b9f5fb09d6e7d92a0ac22680c571dead66a0a5"
+      "sha256": "80a296706bb39c0f94f08f52c7809dfe8315a56cd0ebd3103ccf44015f706bce"
     },
     {
       "file": "0007-status-integrate-branded-responses-and-error-feedback.patch",
-      "sha256": "b564f2a230499a4558670e33a6b97c27285d3552b1efafea54d88d0efd5e28ba"
+      "sha256": "7246ecc6ae3efb826cbf2ca2bc9057d033937bd635dff971d52a415535455f4a"
     },
     {
       "file": "0008-ui-apply-the-shared-interface-to-management-screens.patch",
-      "sha256": "575259a4f87b5110621243161409209defa25e8edadb32ff4f7b0c24419a166c"
+      "sha256": "3487e8406273d6aa9d84bffc6c2eead8f7cbd931b569e4c76831ffbc7e89d38a"
     },
     {
       "file": "0009-build-share-pinned-images-and-isolate-customization-checks.patch",
-      "sha256": "95e034c84c63bbf0eeff3679b2c686676f7acc19638180f834019456352e70f7"
+      "sha256": "b0b8c4ed79ff22f811b9f8d79300457b4385fd7969a042f3e9fbc40d1b855674"
     },
     {
       "file": "0010-anubis-add-scoped-controls-and-transactional-runtime-settings.patch",
-      "sha256": "cb593d169f1b0af51f8145c1e0525be1e35b26b7171e86a6654311086c5aae57"
+      "sha256": "0322b75d36316c510cdb431ba8de787c57ecd00ae1b5762a5cb8b68d81296959"
     },
     {
       "file": "0011-ui-expose-Anubis-policy-and-challenge-controls.patch",
-      "sha256": "9164f056a901e7c90c6a0e2e3824bb646e98d212822e68f132aa68ec679e5e5f"
+      "sha256": "379de8e9ccbe1765c7ac8736a150713e9faf8accda768b3df9f6f9f07b414f8b"
     },
     {
       "file": "0012-anubis-supervise-runtime-changes-without-Docker-access.patch",
-      "sha256": "f6245800acd7858cc60f4f4e303c6bb36e1b305c118b33ebe73f4811a016a984"
+      "sha256": "b4542e61c0cfebf7b0ae108c8ebcd477668cbfdf9c16143c07260cfce86edbf5"
+    },
+    {
+      "file": "0013-ui-align-Anubis-controls-with-shared-settings-forms.patch",
+      "sha256": "27bd86500bdb782bd94971314e2ca3bf128254728bcb87fa15ddc78d8a76b8cc"
     }
   ],
   "cover_letter": "0000-cover-letter.patch",
-  "cover_letter_sha256": "f05805ed9a0a436e10771c32b1532842a63652036f4e8667143540023aaa7ebf",
-  "patched_tree": "02a9679397912fc7bcd5e87e610272c71b4e4963"
+  "cover_letter_sha256": "7f6bfff9260f5cf8e79024e467aa0f065befa3be6c09acacedef038b0e024a43",
+  "patched_tree": "a93ba568bc8b104346c846da9fdd6bfad0f4c3bb"
 }

@@ -1,7 +1,7 @@
 From a3d38aac55a56edec2dd2c2bfb8cd92bad23ef34 Mon Sep 17 00:00:00 2001
 From: zeroday0619 <escha@zeroday0619.dev>
 Date: Fri, 11 Sep 2026 07:37:43 +0000
-Subject: [PATCH 10/12] anubis: add scoped controls and transactional runtime
+Subject: [PATCH 10/13] anubis: add scoped controls and transactional runtime
  settings
 
 Persist the global switch and bounded challenge options in settings, and

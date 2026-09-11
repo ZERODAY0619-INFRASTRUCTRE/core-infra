@@ -10,3 +10,4 @@
 0010-anubis-add-scoped-controls-and-transactional-runtime-settings.patch
 0011-ui-expose-Anubis-policy-and-challenge-controls.patch
 0012-anubis-supervise-runtime-changes-without-Docker-access.patch
+0013-ui-align-Anubis-controls-with-shared-settings-forms.patch
