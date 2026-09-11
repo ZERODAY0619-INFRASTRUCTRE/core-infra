@@ -115,10 +115,11 @@ def export(source, base=None, version=None, require_signoff=False):
     with tempfile.TemporaryDirectory() as tmp:
         stage = Path(tmp)
         git(source, 'format-patch', '--filename-max-length=120', '--binary', '--full-index', '--numbered', '--cover-letter',
-            '--base=' + base, '--no-signature', '-o', str(stage), base + '..HEAD')
+            '--base=' + base, '--from=' + data['author'], '--no-signature', '-o', str(stage), base + '..HEAD')
         cover = stage / '0000-cover-letter.patch'
         text = cover.read_text().replace('*** SUBJECT HERE ***', 'cpm: update deployment customizations').replace(
             '*** BLURB HERE ***', 'Apply the numbered patches in series order to the pinned public\nupstream commit. This series preserves the shared ICPM/PCPM behavior.\nReview each patch and run the deployment and application checks before\npublishing. No review, testing or DCO trailers are synthesized.')
+        text = re.sub(r"(?m)^From: .+$", "From: " + data["author"], text, count=1)
         cover.write_text(text)
         # Preserve the previous patch set, including superseded filenames.
         backup = ROOT / 'deployment/backups' / ('patch-series-' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ'))

@@ -26,6 +26,9 @@ Current series:
 7. Status responses, maintenance and error feedback
 8. Management screen presentation
 9. Shared image builds and custom CI
+10. Anubis global/per-host policy, validated runtime settings and rollback
+11. Anubis console toggles and challenge settings
+12. Non-root Anubis runtime supervisor with health acknowledgements
 
 Author: zeroday0619 <escha@zeroday0619.dev>
 

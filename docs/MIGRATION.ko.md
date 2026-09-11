@@ -36,7 +36,7 @@ Compose 실행은 `./scripts/compose.sh`를 사용한다.
 
 ## 전환 시점
 
-- 두 공통 이미지를 빌드하고 `CPM_WEB_IMAGE`, `CPM_CADDY_IMAGE`에 커밋 태그를 설정한다.
+- 공통 web·Caddy 및 Anubis 실행기 이미지를 빌드하고 `CPM_WEB_IMAGE`, `CPM_CADDY_IMAGE`, `CPM_ANUBIS_IMAGE`에 빌드 태그를 설정한다.
 - 운영 DB·볼륨과 기존 환경설정 백업을 준비하고 기존 이미지 ID/태그를 기록한다.
 - 기존 Compose 프로젝트 이름 `cpm`과 볼륨이 맞는지 확인한다. 새 `.env`에
   `COMPOSE_PROJECT_NAME=cpm`을 설정해야 기존 `cpm_*` 볼륨을 사용한다.

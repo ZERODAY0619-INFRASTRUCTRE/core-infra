@@ -72,7 +72,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [web, caddy, netguard]
+        component: [web, caddy, anubis, netguard]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -97,6 +97,10 @@ jobs:
             REV=$(python3 -c 'import json; print(json.load(open("patches/caddy-proxy-manager/upstream.json"))["patched_tree"][:12])')
             if [ "$COMPONENT" = web ]; then
               docker run --rm --network none --entrypoint bun "cpm-web:$REV" --version
+            elif [ "$COMPONENT" = anubis ]; then
+              docker run --rm --network none --entrypoint /ko-app/anubis "cpm-anubis:$REV" --version
+              docker run --rm --network none --entrypoint bun "cpm-anubis:$REV" --version
+              python3 scripts/test-anubis-runtime.py --image "cpm-anubis:$REV"
             else
               docker run --rm --network none --entrypoint caddy "cpm-caddy:$REV" version
               docker run --rm --network none --entrypoint caddy "cpm-caddy:$REV" list-modules

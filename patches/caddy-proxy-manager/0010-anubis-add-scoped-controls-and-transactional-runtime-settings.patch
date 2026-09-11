@@ -1,0 +1,565 @@
+From a3d38aac55a56edec2dd2c2bfb8cd92bad23ef34 Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Fri, 11 Sep 2026 07:37:43 +0000
+Subject: [PATCH 10/12] anubis: add scoped controls and transactional runtime
+ settings
+
+Persist the global switch and bounded challenge options in settings, and
+preserve per-host choices in existing metadata. Match exact hosts before
+wildcard hosts while retaining the deployed protection defaults.
+
+Require administrator authorization, serialize changes, restore settings
+after failed applies, and wait for the isolated runtime supervisor to
+acknowledge healthy settings.
+---
+ app/api/v1/anubis/route.ts           |  86 +++++++++++++++++++++
+ src/lib/anubis-options.ts            |  22 ++++++
+ src/lib/anubis-policy.ts             |  34 +++++++++
+ src/lib/anubis-runtime.ts            |  32 ++++++++
+ src/lib/anubis-settings.ts           |  10 +++
+ src/lib/caddy-anubis.ts              |   9 ++-
+ src/lib/caddy.ts                     |  13 +++-
+ src/lib/models/proxy-hosts.ts        |   6 ++
+ tests/unit/anubis-options.test.ts    |  20 +++++
+ tests/unit/anubis-policy.test.ts     |  51 +++++++++++++
+ tests/unit/api-routes/anubis.test.ts | 110 +++++++++++++++++++++++++++
+ 11 files changed, 388 insertions(+), 5 deletions(-)
+ create mode 100644 app/api/v1/anubis/route.ts
+ create mode 100644 src/lib/anubis-options.ts
+ create mode 100644 src/lib/anubis-policy.ts
+ create mode 100644 src/lib/anubis-runtime.ts
+ create mode 100644 src/lib/anubis-settings.ts
+ create mode 100644 tests/unit/anubis-options.test.ts
+ create mode 100644 tests/unit/anubis-policy.test.ts
+ create mode 100644 tests/unit/api-routes/anubis.test.ts
+
+diff --git a/app/api/v1/anubis/route.ts b/app/api/v1/anubis/route.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..3efd090f8636dfb5b238b51430ebbb0b8d59a5ab
+--- /dev/null
++++ b/app/api/v1/anubis/route.ts
+@@ -0,0 +1,86 @@
++import { validateAnubisOptions, type AnubisOptions } from "@/src/lib/anubis-options";
++import { NextRequest, NextResponse } from "next/server";
++import { eq } from "drizzle-orm";
++import db, { nowIso } from "@/src/lib/db";
++import { proxyHosts } from "@/src/lib/db/schema";
++import { apiErrorResponse, requireApiAdmin, NotFoundError, logUnexpectedApiError } from "@/src/lib/api-auth";
++import { ApiValidationError, ApiConflictError } from "@/src/lib/api-errors";
++import { getAnubisStatus } from "@/src/lib/anubis-settings";
++import { inAnubisScope } from "@/src/lib/anubis-policy";
++import { getSetting, setSetting, clearSetting } from "@/src/lib/settings";
++import { applyCaddyConfig } from "@/src/lib/caddy";
++import { withSettingsUpdateLock } from "@/src/lib/settings-update-lock";
++import { logAuditEvent } from "@/src/lib/audit";
++
++export async function GET(request: NextRequest) {
++  try {
++    await requireApiAdmin(request);
++    return NextResponse.json(await getAnubisStatus(), { headers: { "Cache-Control": "no-store" } });
++  } catch (error) { return apiErrorResponse(error); }
++}
++
++export async function PUT(request: NextRequest) {
++  try {
++    const { userId } = await requireApiAdmin(request);
++    let body: unknown;
++    try { body = await request.json(); } catch { throw new ApiValidationError("Invalid JSON payload"); }
++    if (!body || typeof body !== "object" || Array.isArray(body)) throw new ApiValidationError("Expected an object");
++    const input = body as Record<string, unknown>;
++    if (Object.keys(input).some(key => !["enabled", "hostId", "options"].includes(key)) || (input.enabled !== undefined && typeof input.enabled !== "boolean") || (input.enabled === undefined && input.options === undefined)) {
++      throw new ApiValidationError("Provide a boolean enabled value and optional positive hostId");
++    }
++    const enabled = input.enabled as boolean | undefined;
++    let options: AnubisOptions | undefined;
++    if (input.options !== undefined) {
++      try { options = validateAnubisOptions(input.options); }
++      catch (error) { throw new ApiValidationError(error instanceof Error ? error.message : "Invalid Anubis options"); }
++    }
++    if (input.hostId !== undefined && (options !== undefined || enabled === undefined)) throw new ApiValidationError("Host updates only accept enabled");
++    const hostId = input.hostId;
++    if (hostId !== undefined && (typeof hostId !== "number" || !Number.isSafeInteger(hostId) || hostId <= 0)) {
++      throw new ApiValidationError("Invalid hostId");
++    }
++    return await withSettingsUpdateLock(async () => {
++      const status = await getAnubisStatus();
++      if (!status.available || !status.domain) throw new ApiConflictError("Anubis is not configured for this instance");
++      if (options && !status.configurable) throw new ApiConflictError("Anubis runtime settings are not configured for this instance");
++      let restore: () => Promise<void>;
++      if (typeof hostId === "number") {
++        const host = await db.query.proxyHosts.findFirst({ where: eq(proxyHosts.id, hostId) });
++        if (!host) throw new NotFoundError("Proxy host not found");
++        const domains = JSON.parse(host.domains) as string[];
++        if (!domains.some(domain => inAnubisScope(domain, status.domain!))) {
++          throw new ApiConflictError("This host is outside the configured Anubis domain scope");
++        }
++        const previous = JSON.parse(host.meta || "{}") as Record<string, unknown>;
++        restore = async () => {
++          const current = await db.query.proxyHosts.findFirst({ where: eq(proxyHosts.id, hostId) });
++          if (!current) return;
++          const meta = JSON.parse(current.meta || "{}") as Record<string, unknown>;
++          if (previous.anubis_enabled === undefined) delete meta.anubis_enabled;
++          else meta.anubis_enabled = previous.anubis_enabled;
++          await db.update(proxyHosts).set({ meta: JSON.stringify(meta), updatedAt: nowIso() }).where(eq(proxyHosts.id, hostId));
++        };
++        await db.update(proxyHosts).set({ meta: JSON.stringify({ ...previous, anubis_enabled: enabled }), updatedAt: nowIso() }).where(eq(proxyHosts.id, hostId));
++      } else {
++        const previous = await getSetting<unknown>("anubis");
++        restore = () => previous === null ? clearSetting("anubis") : setSetting("anubis", previous);
++        await setSetting("anubis", { ...(previous && typeof previous === "object" ? previous : {}), ...(enabled !== undefined ? { enabled } : {}), ...(options ? { options } : {}) });
++      }
++      try { await applyCaddyConfig(); }
++      catch (error) {
++        logUnexpectedApiError("Anubis configuration apply failed", error);
++        await restore();
++        try { await applyCaddyConfig(); }
++        catch (restoreError) {
++          logUnexpectedApiError("Anubis configuration recovery failed", restoreError);
++          return NextResponse.json({ error: "Settings restored, but Caddy recovery could not be confirmed. Check Caddy before retrying." }, { status: 502 });
++        }
++        return NextResponse.json({ error: "Caddy apply failed. Previous settings and configuration were restored." }, { status: 502 });
++      }
++      logAuditEvent({ userId, action: "update", entityType: "anubis", entityId: typeof hostId === "number" ? hostId : null,
++        summary: options ? "Updated Anubis runtime settings" : `${enabled ? "Enabled" : "Disabled"} ${hostId === undefined ? "global" : "host"} Anubis protection`, data: { enabled, hostId, options } });
++      return NextResponse.json({ ok: true, enabled });
++    });
++  } catch (error) { return apiErrorResponse(error); }
++}
+diff --git a/src/lib/anubis-options.ts b/src/lib/anubis-options.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..88ad99bf499bbe57eb3c09a5720899dc8b6dcce1
+--- /dev/null
++++ b/src/lib/anubis-options.ts
+@@ -0,0 +1,22 @@
++export const DEFAULT_ANUBIS_OPTIONS = {
++  algorithm: "fast" as "fast" | "slow" | "metarefresh",
++  difficulty: 4,
++  cookieHours: 24,
++  language: "" as "" | "en" | "ko" | "ja" | "de" | "fr" | "es",
++  simplified: false,
++  robots: false,
++};
++export type AnubisOptions = typeof DEFAULT_ANUBIS_OPTIONS;
++
++/** Shared by the console API and the isolated Anubis supervisor. */
++export function validateAnubisOptions(input: unknown): AnubisOptions {
++  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Expected Anubis options object");
++  const o = input as Record<string, unknown>;
++  if (Object.keys(o).some(key => !Object.hasOwn(DEFAULT_ANUBIS_OPTIONS, key))) throw new Error("Unknown Anubis option");
++  if (!["fast", "slow", "metarefresh"].includes(o.algorithm as string)) throw new Error("Invalid challenge algorithm");
++  if (!Number.isInteger(o.difficulty) || Number(o.difficulty) < 1 || Number(o.difficulty) > 8) throw new Error("Difficulty must be an integer from 1 to 8");
++  if (!Number.isInteger(o.cookieHours) || Number(o.cookieHours) < 1 || Number(o.cookieHours) > 168) throw new Error("Cookie lifetime must be 1 to 168 hours");
++  if (!["", "en", "ko", "ja", "de", "fr", "es"].includes(o.language as string)) throw new Error("Invalid language");
++  if (typeof o.simplified !== "boolean" || typeof o.robots !== "boolean") throw new Error("Explanation and robots options must be booleans");
++  return { algorithm: o.algorithm as AnubisOptions["algorithm"], difficulty: Number(o.difficulty), cookieHours: Number(o.cookieHours), language: o.language as AnubisOptions["language"], simplified: o.simplified, robots: o.robots };
++}
+diff --git a/src/lib/anubis-policy.ts b/src/lib/anubis-policy.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..0ded091f88e0c2a04503bfcc8724eba28cf83111
+--- /dev/null
++++ b/src/lib/anubis-policy.ts
+@@ -0,0 +1,34 @@
++import type { AnubisOptions } from "./anubis-options";
++import { hostMatchesPattern } from "./host-pattern-priority";
++
++export type AnubisHostPolicy = { domains: string[]; enabled: boolean; anubisEnabled?: boolean };
++export type AnubisStatus = { available: boolean; enabled: boolean; domain: string | null; options?: AnubisOptions; configurable?: boolean };
++
++export function inAnubisScope(domain: string, scope: string): boolean {
++  return hostMatchesPattern(domain, `*.${scope}`);
++}
++
++/** Exact hosts override wildcard hosts, as they do in Caddy route ordering.
++ * Conflicting duplicate names remain protected if either host enables protection.
++ * Unmanaged names retain the deployment's original wildcard protection.
++ */
++export function anubisExpression(scope: string, hosts: AnubisHostPolicy[]): string {
++  const pattern = `^[^.]+[.]${scope.replaceAll(".", "[.]")}[.]?$`;
++  const base = `{http.request.host}.lowerAscii().matches(${JSON.stringify(pattern)})`;
++  const choices = new Map<string, boolean>();
++  for (const host of hosts) {
++    if (!host.enabled) continue;
++    for (const value of host.domains) {
++      const domain = value.trim().toLowerCase().replace(/\.$/, "");
++      if (!inAnubisScope(domain, scope)) continue;
++      choices.set(domain, (choices.get(domain) ?? false) || host.anubisEnabled !== false);
++    }
++  }
++  const wildcardEnabled = choices.get(`*.${scope}`) !== false;
++  const exact = [...choices].filter(([domain, enabled]) => !domain.startsWith("*.") && enabled !== wildcardEnabled);
++  if (!exact.length) return wildcardEnabled ? base : "false";
++  // Compare literal hostnames through a CEL list; no user value becomes code.
++  const names = exact.flatMap(([domain]) => [domain, domain + "."]);
++  const match = `{http.request.host}.lowerAscii() in ${JSON.stringify(names)}`;
++  return `(${base}) && (${wildcardEnabled ? `!(${match})` : match})`;
++}
+diff --git a/src/lib/anubis-runtime.ts b/src/lib/anubis-runtime.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a3067da68796fa3241d72227e4c7c12aea4eef26
+--- /dev/null
++++ b/src/lib/anubis-runtime.ts
+@@ -0,0 +1,32 @@
++import { createHash, randomUUID } from "node:crypto";
++import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
++import { join } from "node:path";
++import { getSetting } from "./settings";
++import { DEFAULT_ANUBIS_OPTIONS, validateAnubisOptions } from "./anubis-options";
++
++export async function syncAnubisRuntime() {
++  const directory = process.env.ANUBIS_CONTROL_PATH;
++  if (!directory || !process.env.ANUBIS_PROTECTED_DOMAIN) return;
++  const stored = await getSetting<{ options?: unknown }>("anubis");
++  const options = validateAnubisOptions(stored?.options ?? DEFAULT_ANUBIS_OPTIONS);
++  const hash = createHash("sha256").update(JSON.stringify(options)).digest("hex");
++  await mkdir(directory, { recursive: true });
++  const desired = JSON.stringify({ hash, options });
++  const path = join(directory, "desired.json");
++  if (await readFile(path, "utf8").catch(() => "") !== desired) {
++    const temp = join(directory, `desired-${randomUUID()}.tmp`);
++    await writeFile(temp, desired, { mode: 0o600 });
++    await rename(temp, path);
++  }
++  // Only acknowledge success after the supervisor reports a healthy replacement.
++  for (let attempt = 0; attempt < 40; attempt++) {
++    const raw = await readFile(join(directory, "status.json"), "utf8").catch(() => "{}");
++    const status = JSON.parse(raw) as { hash?: string; state?: string; at?: number };
++    if (status.hash === hash && status.at && Date.now() - status.at < 15000) {
++      if (status.state === "ready") return;
++      if (status.state === "error") throw new Error("Anubis rejected runtime settings");
++    }
++    await new Promise(resolve => setTimeout(resolve, 500));
++  }
++  throw new Error("Timed out applying Anubis runtime settings");
++}
+diff --git a/src/lib/anubis-settings.ts b/src/lib/anubis-settings.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..05210204a0b3acba3a59222d9bd47deab78b0b0f
+--- /dev/null
++++ b/src/lib/anubis-settings.ts
+@@ -0,0 +1,10 @@
++import { DEFAULT_ANUBIS_OPTIONS, validateAnubisOptions } from "./anubis-options";
++import { getSetting } from "./settings";
++import type { AnubisStatus } from "./anubis-policy";
++
++export async function getAnubisStatus(): Promise<AnubisStatus> {
++  const domain = process.env.ANUBIS_PROTECTED_DOMAIN || null;
++  if (!domain) return { available: false, enabled: false, domain: null };
++  const settings = await getSetting<{ enabled?: boolean; options?: unknown }>("anubis");
++  return { available: Boolean(domain), enabled: Boolean(domain) && settings?.enabled !== false, domain, options: validateAnubisOptions(settings?.options ?? DEFAULT_ANUBIS_OPTIONS), configurable: Boolean(process.env.ANUBIS_CONTROL_PATH) };
++}
+diff --git a/src/lib/caddy-anubis.ts b/src/lib/caddy-anubis.ts
+index 377ec73c128fef6e3a50b0df2afe87a38b1e71f0..f8e8297299d9c22538eb6e751f941a4f0b985002 100644
+--- a/src/lib/caddy-anubis.ts
++++ b/src/lib/caddy-anubis.ts
+@@ -1,18 +1,19 @@
++import { anubisExpression, type AnubisHostPolicy } from "./anubis-policy";
++
+ /**
+  * Same-origin Anubis gate. Only the private success responder's HTTP 204 lets
+  * Caddy continue with the ORIGINAL request, including body, TLS and client IP.
+  * Challenge pages (HTTP 200), denials and errors are returned to the client.
+  * Keep this before every managed route so custom locations cannot bypass it.
+  */
+-export function buildAnubisGate(domain: string | undefined) {
+-  if (!domain) return null;
++export function buildAnubisGate(domain: string | undefined, options: { enabled?: boolean; hosts?: AnubisHostPolicy[] } = {}) {
++  if (!domain || options.enabled === false) return null;
+   if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(domain)) {
+     throw new Error("Invalid ANUBIS_PROTECTED_DOMAIN");
+   }
+   // A host matcher would make Caddy auto-manage a new wildcard certificate.
+   // CEL matches the same one-label scope without changing TLS subjects.
+-  const hostPattern = `^[^.]+[.]${domain.replaceAll(".", "[.]")}[.]?$`;
+-  const expression = `{http.request.host}.lowerAscii().matches(${JSON.stringify(hostPattern)})`;
++  const expression = anubisExpression(domain, options.hosts ?? []);
+   const proxy = () => ({
+     handler: "reverse_proxy",
+     upstreams: [{ dial: "127.0.0.1:8923" }],
+diff --git a/src/lib/caddy.ts b/src/lib/caddy.ts
+index 7f40b7b60a8f2090c5323472f95162096d0bef54..41964f4566e07bd050666e59c767b2a566694ed4 100644
+--- a/src/lib/caddy.ts
++++ b/src/lib/caddy.ts
+@@ -1,5 +1,7 @@
++import { syncAnubisRuntime } from "./anubis-runtime";
+ import { caddyStatusRoute, defaultErrorRoutes, feedbackProxyRoute } from "./caddy-status";
+ import { maintenanceEnabled, upstreamErrorResponses } from "./status-pages";
++import { getAnubisStatus } from "./anubis-settings";
+ import { buildAnubisGate } from "./caddy-anubis";
+ import { buildAuthentikUpstream } from "./caddy-authentik";
+ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+@@ -2582,7 +2584,15 @@ export async function buildCaddyDocument() {
+   // unmatched-request behavior and must remain last so it cannot shadow any
+   // managed proxy host.
+   const defaultResponseRoute = buildDefaultResponseRoute(defaultResponseSettings);
+-  const anubisGate = buildAnubisGate(process.env.ANUBIS_PROTECTED_DOMAIN);
++  const anubis = await getAnubisStatus();
++  const anubisGate = buildAnubisGate(anubis.domain ?? undefined, {
++    enabled: anubis.enabled,
++    hosts: proxyHostRows.map(row => ({
++      enabled: Boolean(row.enabled),
++      domains: parseJson<string[]>(row.domains, []),
++      anubisEnabled: parseJson<{ anubis_enabled?: boolean }>(row.meta, {}).anubis_enabled !== false,
++    })),
++  });
+   const mainRoutes = [...(anubisGate?.routes ?? []), ...httpRoutes, ...(defaultResponseRoute ? [defaultResponseRoute] : [])];
+ 
+   // Server-level error routes (Caddy handle_errors): per-host rules first so they
+@@ -2796,6 +2806,7 @@ export async function applyCaddyConfig() {
+     );
+   }
+ 
++  await syncAnubisRuntime();
+   try {
+     await syncInstances();
+   } catch (error) {
+diff --git a/src/lib/models/proxy-hosts.ts b/src/lib/models/proxy-hosts.ts
+index f2b2ef1c55223c18d36a7272c0e37013cd3eee79..cec7de5193be528bc6738b854dc09d2114d33416 100644
+--- a/src/lib/models/proxy-hosts.ts
++++ b/src/lib/models/proxy-hosts.ts
+@@ -433,6 +433,7 @@ type CpmForwardAuthMeta = {
+ };
+ 
+ type ProxyHostMeta = {
++  anubis_enabled?: boolean;
+   custom_reverse_proxy_json?: string;
+   custom_pre_handlers_json?: string;
+   authentik?: ProxyHostAuthentikMeta;
+@@ -454,6 +455,7 @@ type ProxyHostMeta = {
+ };
+ 
+ export type ProxyHost = {
++  anubisEnabled?: boolean;
+   id: number;
+   name: string;
+   domains: string[];
+@@ -783,6 +785,7 @@ function serializeMeta(meta: ProxyHostMeta | null | undefined) {
+     return null;
+   }
+   const normalized: ProxyHostMeta = {};
++  if (typeof meta.anubis_enabled === "boolean") normalized.anubis_enabled = meta.anubis_enabled;
+   const reverse = normalizeMetaValue(meta.custom_reverse_proxy_json ?? null);
+   const preHandlers = normalizeMetaValue(meta.custom_pre_handlers_json ?? null);
+ 
+@@ -1072,6 +1075,7 @@ function parseMeta(value: string | null): ProxyHostMeta {
+   try {
+     const parsed = JSON.parse(value) as ProxyHostMeta;
+     return {
++      anubis_enabled: typeof parsed.anubis_enabled === "boolean" ? parsed.anubis_enabled : undefined,
+       custom_reverse_proxy_json: normalizeMetaValue(parsed.custom_reverse_proxy_json ?? null) ?? undefined,
+       custom_pre_handlers_json: normalizeMetaValue(parsed.custom_pre_handlers_json ?? null) ?? undefined,
+       authentik: sanitizeAuthentikMeta(parsed.authentik),
+@@ -1969,6 +1973,7 @@ function parseProxyHost(row: ProxyHostRow): ProxyHost {
+   const meta = parseMeta(row.meta ?? null);
+   return {
+     id: row.id,
++    anubisEnabled: meta.anubis_enabled !== false,
+     name: row.name,
+     domains: JSON.parse(row.domains),
+     upstreams: JSON.parse(row.upstreams),
+@@ -2131,6 +2136,7 @@ export async function updateProxyHost(id: number, input: Partial<ProxyHostInput>
+   await assertWildcardIssuable(domainList, effectiveCertificateId);
+   const upstreams = input.upstreams ? JSON.stringify(Array.from(new Set(input.upstreams))) : JSON.stringify(existing.upstreams);
+   const existingMeta: ProxyHostMeta = {
++    anubis_enabled: existing.anubisEnabled,
+     custom_reverse_proxy_json: existing.customReverseProxyJson ?? undefined,
+     custom_pre_handlers_json: existing.customPreHandlersJson ?? undefined,
+     authentik: dehydrateAuthentik(existing.authentik),
+diff --git a/tests/unit/anubis-options.test.ts b/tests/unit/anubis-options.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..8fe4fd4f21b8ae8d2f6ee904485cb76e9a5a5123
+--- /dev/null
++++ b/tests/unit/anubis-options.test.ts
+@@ -0,0 +1,20 @@
++import { describe, expect, it } from "vitest";
++import { DEFAULT_ANUBIS_OPTIONS, validateAnubisOptions } from "../../src/lib/anubis-options";
++
++describe("Anubis runtime option contract", () => {
++  it("accepts the deployed defaults and bounded form settings", () => {
++    expect(validateAnubisOptions(DEFAULT_ANUBIS_OPTIONS)).toEqual(DEFAULT_ANUBIS_OPTIONS);
++    expect(validateAnubisOptions({ ...DEFAULT_ANUBIS_OPTIONS, algorithm: "metarefresh", difficulty: 8, cookieHours: 168, language: "ko", simplified: true, robots: true }).cookieHours).toBe(168);
++  });
++  const invalidOptions: Record<string, unknown>[] = [
++    { difficulty: 0 }, { difficulty: 9 }, { difficulty: 1.5 }, { difficulty: "4" },
++    { cookieHours: 0 }, { cookieHours: 169 }, { language: "unknown" },
++    { algorithm: "unknown" }, { simplified: "false" }, { robots: 1 },
++    { target: "http://elsewhere.test" }, { command: "something" }, { toString: "unexpected" },
++  ];
++  for (const change of invalidOptions) {
++    it(`rejects unsupported options ${JSON.stringify(change)}`, () => {
++      expect(() => validateAnubisOptions({ ...DEFAULT_ANUBIS_OPTIONS, ...change })).toThrow();
++    });
++  }
++});
+diff --git a/tests/unit/anubis-policy.test.ts b/tests/unit/anubis-policy.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..e19c1c7391dd3ea716c302088a2de57637757494
+--- /dev/null
++++ b/tests/unit/anubis-policy.test.ts
+@@ -0,0 +1,51 @@
++import { describe, it, expect } from "vitest";
++import { anubisExpression, inAnubisScope } from "../../src/lib/anubis-policy";
++import { buildAnubisGate } from "../../src/lib/caddy-anubis";
++
++describe("Anubis gate policy", () => {
++  it("preserves the deployed scope and disables the entire gate globally", () => {
++    expect(buildAnubisGate(undefined)).toBeNull();
++    expect(buildAnubisGate("example.test", { enabled: false })).toBeNull();
++    expect(buildAnubisGate("example.test")!.routes).toHaveLength(3);
++    expect(inAnubisScope("A.EXAMPLE.TEST.", "example.test")).toBe(true);
++    expect(inAnubisScope("*.example.test", "example.test")).toBe(true);
++    for (const domain of ["example.test", "a.b.example.test", "a.example.test.evil"]) {
++      expect(inAnubisScope(domain, "example.test")).toBe(false);
++    }
++  });
++  it("excludes every alias of a disabled host from every gate route", () => {
++    const gate = buildAnubisGate("example.test", { hosts: [{ domains: ["a.example.test", "b.example.test"], enabled: true, anubisEnabled: false }] })!;
++    for (const route of gate.routes) {
++      expect(route.match[0].expression).toContain('!(');
++      expect(route.match[0].expression).toContain('"a.example.test"');
++      expect(route.match[0].expression).toContain('"b.example.test."');
++    }
++  });
++  it("gives exact enabled hosts precedence over an opted-out wildcard", () => {
++    const expression = anubisExpression("example.test", [
++      { domains: ["*.example.test"], enabled: true, anubisEnabled: false },
++      { domains: ["app.example.test"], enabled: true },
++    ]);
++    expect(expression).toContain(' in ["app.example.test","app.example.test."]');
++    expect(expression).not.toContain('!(');
++  });
++  it("does not let disabled or unrelated proxy hosts change protection", () => {
++    expect(anubisExpression("example.test", [
++      { domains: ["*.example.test"], enabled: false, anubisEnabled: false },
++      { domains: ["other.test"], enabled: true, anubisEnabled: false },
++    ])).toBe(anubisExpression("example.test", []));
++  });
++  it("keeps duplicate names protected if any matching host requires protection", () => {
++    expect(anubisExpression("example.test", [
++      { domains: ["a.example.test"], enabled: true, anubisEnabled: false },
++      { domains: ["a.example.test"], enabled: true, anubisEnabled: true },
++    ])).toBe(anubisExpression("example.test", []));
++  });
++  it("keeps the original request and private verified-success contract", () => {
++    const gate = buildAnubisGate("example.test")!;
++    const check = gate.routes[2].handle[0] as any;
++    expect(check.rewrite).toEqual({ method: "GET" });
++    expect(check.handle_response[0].match).toEqual({ status_code: [204], headers: { "X-Cpm-Anubis-Verified": ["yes"] } });
++    expect(gate.successServer.listen).toEqual(["127.0.0.1:8924"]);
++  });
++});
+diff --git a/tests/unit/api-routes/anubis.test.ts b/tests/unit/api-routes/anubis.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ade08632995ee1e5a36978198fb01f86d6f94457
+--- /dev/null
++++ b/tests/unit/api-routes/anubis.test.ts
+@@ -0,0 +1,110 @@
++import { beforeEach, describe, expect, it, vi } from "vitest";
++import { NextRequest, NextResponse } from "next/server";
++const state = vi.hoisted(() => ({
++  setting: null as unknown,
++  host: { id: 7, domains: '["app.example.test"]', meta: '{"unrelated":"keep"}' } as any,
++  available: true, configurable: true,
++  apply: vi.fn(), auth: vi.fn(), audit: vi.fn(),
++}));
++vi.mock("@/src/lib/api-auth", () => ({
++  requireApiAdmin: state.auth,
++  logUnexpectedApiError: vi.fn(),
++  NotFoundError: class extends Error { status = 404; },
++  apiErrorResponse: (e: any) => NextResponse.json({ error: e.message }, { status: e.status ?? 500 }),
++}));
++vi.mock("@/src/lib/settings", () => ({
++  getSetting: async () => state.setting,
++  setSetting: async (_key: string, value: unknown) => { state.setting = value; },
++  clearSetting: async () => { state.setting = null; },
++}));
++vi.mock("@/src/lib/anubis-settings", () => ({ getAnubisStatus: async () => ({ available: state.available, enabled: true, configurable: state.configurable, domain: state.available ? "example.test" : null }) }));
++vi.mock("@/src/lib/caddy", () => ({ applyCaddyConfig: state.apply }));
++vi.mock("@/src/lib/audit", () => ({ logAuditEvent: state.audit }));
++vi.mock("@/src/lib/db", () => ({
++  nowIso: () => "2026-01-01T00:00:00Z",
++  default: {
++    query: { proxyHosts: { findFirst: async () => state.host } },
++    update: () => ({ set: (value: any) => ({ where: async () => { Object.assign(state.host, value); } }) }),
++  },
++}));
++import { GET, PUT } from "../../../app/api/v1/anubis/route";
++const request = (body: unknown) => new NextRequest("http://localhost/api/v1/anubis", { method: "PUT", body: JSON.stringify(body) });
++beforeEach(() => {
++  state.setting = null; state.available = true; state.configurable = true;
++  state.host = { id: 7, domains: '["app.example.test"]', meta: '{"unrelated":"keep"}' };
++  state.apply.mockReset().mockResolvedValue(undefined);
++  state.auth.mockReset().mockResolvedValue({ userId: 1 }); state.audit.mockReset();
++});
++describe("Anubis administrator API", () => {
++  it("requires administrator authorization before reading or writing", async () => {
++    state.auth.mockRejectedValue(Object.assign(new Error("Forbidden"), { status: 403 }));
++    expect((await GET(new NextRequest("http://localhost/api/v1/anubis"))).status).toBe(403);
++    expect((await PUT(request({ enabled: false }))).status).toBe(403);
++    expect(state.setting).toBeNull(); expect(state.apply).not.toHaveBeenCalled();
++  });
++  it.each([{ enabled: "false" }, { enabled: false, hostId: -1 }, { enabled: false, hostId: "7" }, { enabled: false, extra: true }, []])("rejects malformed input %j", async body => {
++    expect((await PUT(request(body))).status).toBe(400); expect(state.apply).not.toHaveBeenCalled();
++  });
++  it("applies global changes without replacing host preferences", async () => {
++    const meta = state.host.meta;
++    expect((await PUT(request({ enabled: false }))).status).toBe(200);
++    expect(state.setting).toEqual({ enabled: false }); expect(state.host.meta).toBe(meta);
++    expect(state.audit).toHaveBeenCalledOnce();
++  });
++  it("only changes the selected host's Anubis metadata", async () => {
++    expect((await PUT(request({ enabled: false, hostId: 7 }))).status).toBe(200);
++    expect(JSON.parse(state.host.meta)).toEqual({ unrelated: "keep", anubis_enabled: false });
++    expect(state.setting).toBeNull();
++  });
++  it("rejects unavailable instances and hosts outside the deployment scope", async () => {
++    state.available = false;
++    expect((await PUT(request({ enabled: true }))).status).toBe(409);
++    state.available = true; state.host.domains = '["elsewhere.test"]';
++    expect((await PUT(request({ enabled: true, hostId: 7 }))).status).toBe(409);
++    state.host = undefined;
++    expect((await PUT(request({ enabled: true, hostId: 7 }))).status).toBe(404);
++    expect(state.apply).not.toHaveBeenCalled();
++  });
++  it("restores an absent global setting and reapplies after failure", async () => {
++    state.apply.mockRejectedValueOnce(new Error("apply failed"));
++    expect((await PUT(request({ enabled: false }))).status).toBe(502);
++    expect(state.setting).toBeNull(); expect(state.apply).toHaveBeenCalledTimes(2); expect(state.audit).not.toHaveBeenCalled();
++  });
++  it("restores the host preference without discarding other metadata", async () => {
++    state.apply.mockRejectedValueOnce(new Error("apply failed"));
++    expect((await PUT(request({ enabled: false, hostId: 7 }))).status).toBe(502);
++    expect(JSON.parse(state.host.meta)).toEqual({ unrelated: "keep" });
++  });
++  it("reports an unconfirmed recovery instead of claiming success", async () => {
++    state.apply.mockRejectedValue(new Error("offline"));
++    const response = await PUT(request({ enabled: false }));
++    expect(response.status).toBe(502); expect((await response.json()).error).toContain("could not be confirmed");
++    expect(state.setting).toBeNull();
++  });
++});
++
++import { DEFAULT_ANUBIS_OPTIONS } from "../../../src/lib/anubis-options";
++it("saves runtime options without changing the global toggle", async () => {
++  state.setting = { enabled: false };
++  expect((await PUT(request({ options: DEFAULT_ANUBIS_OPTIONS }))).status).toBe(200);
++  expect(state.setting).toEqual({ enabled: false, options: DEFAULT_ANUBIS_OPTIONS });
++});
++it("keeps runtime options when only changing global protection", async () => {
++  state.setting = { enabled: false, options: DEFAULT_ANUBIS_OPTIONS };
++  expect((await PUT(request({ enabled: true }))).status).toBe(200);
++  expect(state.setting).toEqual({ enabled: true, options: DEFAULT_ANUBIS_OPTIONS });
++});
++it("rejects unavailable runtime configuration and restores options after apply failure", async () => {
++  state.configurable = false;
++  expect((await PUT(request({ options: DEFAULT_ANUBIS_OPTIONS }))).status).toBe(409);
++  state.configurable = true;
++  state.setting = { enabled: true, options: DEFAULT_ANUBIS_OPTIONS };
++  state.apply.mockRejectedValueOnce(new Error("runtime not ready"));
++  expect((await PUT(request({ options: { ...DEFAULT_ANUBIS_OPTIONS, difficulty: 2 } }))).status).toBe(502);
++  expect(state.setting).toEqual({ enabled: true, options: DEFAULT_ANUBIS_OPTIONS });
++});
++it("rejects invalid runtime settings without starting an apply", async () => {
++  expect((await PUT(request({ options: { ...DEFAULT_ANUBIS_OPTIONS, difficulty: 99 } }))).status).toBe(400);
++  expect((await PUT(request({ enabled: true, hostId: 7, options: DEFAULT_ANUBIS_OPTIONS }))).status).toBe(400);
++  expect(state.apply).not.toHaveBeenCalled();
++});

@@ -256,8 +256,12 @@ services:
 
   pcpm-anubis:
     <<: *app
-    # Anubis v1.27.0, immutable release image.
-    image: ghcr.io/techarohq/anubis@sha256:8828275668b7bc675679f100970f9714f731388fbbf66ae94de8aca952e3fc4a
+    # Pinned Anubis v1.27.0 with a non-root runtime-settings supervisor.
+    image: ${CPM_ANUBIS_IMAGE:-cpm-anubis:preview}
+    build:
+      context: ./apps/caddy-proxy-manager
+      dockerfile: docker/anubis/Dockerfile
+    user: "10001:10001"
     network_mode: service:pcpm-caddy-net
     read_only: true
     tmpfs: [/tmp]
@@ -266,14 +270,15 @@ services:
       BIND: 127.0.0.1:8923
       TARGET: http://127.0.0.1:8924
       METRICS_BIND: ":8925"
-      POLICY_FNAME: /etc/anubis/botPolicies.yaml
+      POLICY_FNAME: /tmp/botPolicies.json
       COOKIE_SECURE: "true"
       COOKIE_PARTITIONED: "false"
       COOKIE_EXPIRATION_TIME: 24h
       REDIRECT_DOMAINS: "*.${ANUBIS_PROTECTED_DOMAIN:?Set ANUBIS_PROTECTED_DOMAIN}"
       OG_PASSTHROUGH: "false"
     volumes:
-      - ./deployment/generated/anubis/botPolicies.yaml:/etc/anubis/botPolicies.yaml:ro
+      - ./deployment/generated/anubis/botPolicies.json:/etc/anubis/botPolicies.json:ro
+      - pcpm-anubis-control:/control
     depends_on:
       pcpm-caddy-net: {condition: service_healthy}
     healthcheck:
@@ -326,6 +331,7 @@ services:
       AUTH_ALLOW_OAUTH_REGISTRATION: "true"
       ANUBIS_PROTECTED_DOMAIN: ${ANUBIS_PROTECTED_DOMAIN:?Set ANUBIS_PROTECTED_DOMAIN}
       ERROR_FEEDBACK_PATH: /app/feedback/error-feedback.db
+      ANUBIS_CONTROL_PATH: /run/cpm-anubis
       CADDY_API_URL: http://caddy:2019
       OAUTH_ISSUER: https://${SSO_HOST:?Set SSO_HOST}/application/o/pcpm/
       BASE_URL: ${PCPM_BASE_URL:-http://cpm-tailnet:3001}
@@ -340,6 +346,7 @@ services:
       pcpm-clickhouse: {condition: service_healthy, required: false}
     volumes:
       - pcpm-manager-data:/app/data
+      - pcpm-anubis-control:/run/cpm-anubis
       - pcpm-feedback-data:/app/feedback
       - ./deployment/runtime:/run/cpm-observations:ro
       - pcpm-logs:/logs
@@ -487,6 +494,7 @@ volumes:
   pcpm-acme:
   pcpm-manager-data:
   pcpm-feedback-data:
+  pcpm-anubis-control:
   icpm-clickhouse-data:
   icpm-clickhouse-logs:
   pcpm-clickhouse-data:

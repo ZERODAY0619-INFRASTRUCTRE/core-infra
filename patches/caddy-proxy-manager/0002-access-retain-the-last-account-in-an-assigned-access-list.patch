@@ -1,7 +1,7 @@
 From 54e24b45f2aa08a2186c5e9fff1da74c8dc09bb9 Mon Sep 17 00:00:00 2001
 From: zeroday0619 <escha@zeroday0619.dev>
 Date: Fri, 11 Sep 2026 07:00:01 +0000
-Subject: [PATCH 2/9] access: retain the last account in an assigned access
+Subject: [PATCH 02/12] access: retain the last account in an assigned access
  list
 
 Reject removal of the final account from an access list attached to a

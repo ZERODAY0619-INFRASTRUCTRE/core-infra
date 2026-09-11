@@ -1,7 +1,8 @@
 From 6f5acb6e1cac635015db2c78cfdd38eab831d7de Mon Sep 17 00:00:00 2001
 From: zeroday0619 <escha@zeroday0619.dev>
 Date: Fri, 11 Sep 2026 07:00:02 +0000
-Subject: [PATCH 3/9] auth: validate proxy authentication inputs and transports
+Subject: [PATCH 03/12] auth: validate proxy authentication inputs and
+ transports
 
 Preserve the deployed forward-auth flow and shared Authentik transport
 helper. Reject ambiguous scoped-mTLS combinations and invalid outpost

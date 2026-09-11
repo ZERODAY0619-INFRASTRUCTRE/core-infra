@@ -1,0 +1,116 @@
+From f79965e66ef8ce7321577aa2924c680774790e0b Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Fri, 11 Sep 2026 07:37:43 +0000
+Subject: [PATCH 12/12] anubis: supervise runtime changes without Docker access
+
+Run the pinned Anubis binary under a non-root supervisor with a shared
+control volume. Validate bounded settings, retain immutable protocol
+exceptions, restart only the child process, and acknowledge readiness or
+restore the last healthy settings.
+---
+ docker/anubis/Dockerfile    |  9 +++++
+ docker/anubis/supervisor.ts | 79 +++++++++++++++++++++++++++++++++++++
+ 2 files changed, 88 insertions(+)
+ create mode 100644 docker/anubis/Dockerfile
+ create mode 100644 docker/anubis/supervisor.ts
+
+diff --git a/docker/anubis/Dockerfile b/docker/anubis/Dockerfile
+new file mode 100644
+index 0000000000000000000000000000000000000000..bb91d97d334bebe68f393d638992c0e2d1cc5586
+--- /dev/null
++++ b/docker/anubis/Dockerfile
+@@ -0,0 +1,9 @@
++FROM ghcr.io/techarohq/anubis@sha256:8828275668b7bc675679f100970f9714f731388fbbf66ae94de8aca952e3fc4a AS anubis
++FROM oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61
++COPY --from=anubis /ko-app/anubis /ko-app/anubis
++WORKDIR /supervisor/docker/anubis
++COPY docker/anubis/supervisor.ts ./supervisor.ts
++COPY src/lib/anubis-options.ts /supervisor/src/lib/anubis-options.ts
++RUN mkdir /control && chown 10001:10001 /control
++USER 10001:10001
++ENTRYPOINT ["bun", "/supervisor/docker/anubis/supervisor.ts"]
+diff --git a/docker/anubis/supervisor.ts b/docker/anubis/supervisor.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f45ea1927b0b9ae3faa88921bb0e97cd73bef89b
+--- /dev/null
++++ b/docker/anubis/supervisor.ts
+@@ -0,0 +1,79 @@
++import { createHash } from "node:crypto";
++import { readFile, writeFile, rename } from "node:fs/promises";
++import { DEFAULT_ANUBIS_OPTIONS, validateAnubisOptions, type AnubisOptions } from "../../src/lib/anubis-options";
++
++const directory = "/control";
++const basePolicy = JSON.parse(await readFile("/etc/anubis/botPolicies.json", "utf8"));
++let child: ReturnType<typeof Bun.spawn> | undefined;
++let stopped = false;
++let lastGood: AnubisOptions = DEFAULT_ANUBIS_OPTIONS;
++try { lastGood = validateAnubisOptions(JSON.parse(await readFile(`${directory}/last-good.json`, "utf8"))); } catch { /* first start */ }
++let currentHash = "";
++let failedHash = "";
++const digest = (options: AnubisOptions) => createHash("sha256").update(JSON.stringify(options)).digest("hex");
++async function report(hash: string, state: string) {
++  await writeFile(`${directory}/status.tmp`, JSON.stringify({ hash, state, at: Date.now() }), { mode: 0o600 });
++  await rename(`${directory}/status.tmp`, `${directory}/status.json`);
++}
++async function stopChild() {
++  if (!child || child.exitCode !== null) return;
++  child.kill("SIGTERM");
++  await Promise.race([child.exited, Bun.sleep(6000)]);
++  if (child.exitCode === null) { child.kill("SIGKILL"); await child.exited; }
++}
++async function start(options: AnubisOptions) {
++  const policy = structuredClone(basePolicy);
++  const rule = policy.bots.find((rule: { name: string }) => rule.name === "external-browser-challenge");
++  if (!rule) throw new Error("Missing managed challenge rule");
++  rule.challenge = { algorithm: options.algorithm, difficulty: options.difficulty };
++  // Base protocol exceptions are immutable; the console cannot replace policy rules.
++  await writeFile("/tmp/botPolicies.json", JSON.stringify(policy), { mode: 0o600 });
++  await stopChild();
++  child = Bun.spawn(["/ko-app/anubis"], {
++    env: { ...process.env, POLICY_FNAME: "/tmp/botPolicies.json", COOKIE_EXPIRATION_TIME: `${options.cookieHours}h`, FORCED_LANGUAGE: options.language,
++      USE_SIMPLIFIED_EXPLANATION: String(options.simplified), SERVE_ROBOTS_TXT: String(options.robots) },
++    stdout: "inherit", stderr: "inherit",
++  });
++  for (let i = 0; i < 40 && !stopped; i++) {
++    if (child.exitCode !== null) throw new Error("Anubis exited before readiness");
++    try {
++      const response = await fetch("http://127.0.0.1:8925/healthz", { signal: AbortSignal.timeout(500) });
++      if (response.ok) return;
++    } catch { /* wait for listener */ }
++    await Bun.sleep(200);
++  }
++  throw new Error("Anubis readiness timeout");
++}
++for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => { stopped = true; child?.kill(signal); });
++try {
++  while (!stopped) {
++    let options = lastGood;
++    try {
++      const raw = await readFile(`${directory}/desired.json`, "utf8");
++      if (raw.length > 4096) throw new Error("Oversized runtime settings");
++      const desired = JSON.parse(raw);
++      const validated = validateAnubisOptions(desired.options);
++      if (desired.hash !== digest(validated)) throw new Error("Settings checksum mismatch");
++      options = validated;
++    } catch (error) {
++      // An absent request uses defaults; malformed requests never replace a healthy child.
++      if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("Invalid Anubis runtime request; retaining last healthy settings");
++    }
++    const hash = digest(options);
++    if ((hash !== currentHash && hash !== failedHash) || !child || child.exitCode !== null) {
++      await report(hash, "applying");
++      try {
++        await start(options); lastGood = options; currentHash = hash; failedHash = "";
++        await writeFile(`${directory}/last-good.tmp`, JSON.stringify(options), { mode: 0o600 });
++        await rename(`${directory}/last-good.tmp`, `${directory}/last-good.json`);
++      }
++      catch {
++        failedHash = hash;
++        console.error("Anubis settings failed; restoring last healthy configuration");
++        await start(lastGood); currentHash = digest(lastGood);
++      }
++    }
++    await report(hash, hash === failedHash ? "error" : "ready");
++    await Bun.sleep(500);
++  }
++} finally { await stopChild(); }

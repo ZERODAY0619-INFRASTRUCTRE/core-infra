@@ -1,7 +1,7 @@
 From deabbb607ba92cfc14f93eadbc1cec262245e422 Mon Sep 17 00:00:00 2001
 From: zeroday0619 <escha@zeroday0619.dev>
 Date: Fri, 11 Sep 2026 07:00:08 +0000
-Subject: [PATCH 9/9] build: share pinned images and isolate customization
+Subject: [PATCH 09/12] build: share pinned images and isolate customization
  checks
 
 Build common images for both profiles and forward the compatibility

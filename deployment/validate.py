@@ -121,7 +121,15 @@ def main():
             assert service["environment"]["BIND"] == "127.0.0.1:8923"
             assert service["environment"]["TARGET"] == "http://127.0.0.1:8924"
             assert re.fullmatch(r"[0-9a-f]{64}", service["environment"]["ED25519_PRIVATE_KEY_HEX"])
-            assert all(v["read_only"] for v in service["volumes"])
+            assert service["user"] == "10001:10001"
+            assert len(service["volumes"]) == 2
+            policy = next(v for v in service["volumes"] if v["target"] == "/etc/anubis/botPolicies.json")
+            control = next(v for v in service["volumes"] if v["target"] == "/control")
+            assert policy["read_only"] and control["source"] == "pcpm-anubis-control"
+            assert not control.get("read_only")
+            web = services["pcpm-web"]
+            assert web["environment"]["ANUBIS_CONTROL_PATH"] == "/run/cpm-anubis"
+            assert any(v["source"] == "pcpm-anubis-control" and v["target"] == "/run/cpm-anubis" for v in web["volumes"])
             assert services["pcpm-web"]["depends_on"][name]["condition"] == "service_healthy"
             assert services["pcpm-web"]["environment"]["ANUBIS_PROTECTED_DOMAIN"] == site["ANUBIS_PROTECTED_DOMAIN"]
         elif name.endswith("-geoipupdate"):

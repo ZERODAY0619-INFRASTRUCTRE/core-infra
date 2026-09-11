@@ -27,7 +27,7 @@ cp -n .env.example .env
 운영 전환 전 [이전 안내](docs/MIGRATION.ko.md)를 따른다. 같은 호스트에서 고정 네트워크와
 공개 포트가 겹치는 구성을 병렬 실행하지 않는다.
 
-[환경설정](docs/ENV.ko.md) · [패치 업데이트](docs/UPDATE.ko.md) · [Git 업로드](docs/GIT.ko.md)
+[Anubis 콘솔 설정](docs/ANUBIS.ko.md) · [환경설정](docs/ENV.ko.md) · [패치 업데이트](docs/UPDATE.ko.md) · [Git 업로드](docs/GIT.ko.md)
 
 실제 `.env`, DB, 키, 로그, 생성 소스와 백업은 업로드하지 않는다.
 기존 운영 디렉터리와 과거 앱 저장소는 이전·복구용으로 보존하며 새 업로드 대상은 이 저장소다.
@@ -39,7 +39,8 @@ Push, Pull Request 및 Actions의 수동 실행에서 다음 검사를 수행한
 1. 고정한 원본에 패치 적용, 해시·소스 트리 검증, Compose 계약 검사
 2. 배포 도구·패치 관리 테스트와 업로드 파일 및 Git 이력의 크레덴셜 패턴 검사
 3. Node 24 / Bun 1.4.2에서 앱 테스트, 커스텀 테스트, TypeScript 검사
-4. web(Next.js 프로덕션 빌드 포함), Caddy, netguard Docker 이미지 빌드 및 실행 파일 검사
+4. web(Next.js 프로덕션 빌드 포함), Caddy, Anubis, netguard Docker 이미지 빌드 및 실행 파일 검사
+5. 격리된 실제 Anubis에서 세부 설정 적용·거부·재시작 후 유지 검사
 
 앞 단계가 통과해야 다음 단계가 실행되며, 이미지 빌드는 컴포넌트별로 병렬 실행한다.
 실제 `.env`나 GitHub Secrets 없이 공개 원본과 `.env.example`을 사용한다.

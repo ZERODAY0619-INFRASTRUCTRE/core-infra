@@ -49,7 +49,7 @@ class SiteConfigTests(unittest.TestCase):
             policy = (output / 'policy/icpm-web.nft').read_text()
             self.assertIn('ip daddr 192.0.2.10 tcp dport 443 accept', policy)
             self.assertIn('policy drop', policy)
-            anubis = (output / 'anubis/botPolicies.yaml').read_text()
+            anubis = (output / 'anubis/botPolicies.json').read_text()
             self.assertIn('^sso[.]proxy[.]example[.]com[.]?(?::443)?$', anubis)
             caddy = output / 'authentik-outpost.Caddyfile'
             self.assertNotIn('tls_insecure_skip_verify', caddy.read_text())

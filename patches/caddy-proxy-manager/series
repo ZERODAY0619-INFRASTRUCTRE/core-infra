@@ -7,3 +7,6 @@
 0007-status-integrate-branded-responses-and-error-feedback.patch
 0008-ui-apply-the-shared-interface-to-management-screens.patch
 0009-build-share-pinned-images-and-isolate-customization-checks.patch
+0010-anubis-add-scoped-controls-and-transactional-runtime-settings.patch
+0011-ui-expose-Anubis-policy-and-challenge-controls.patch
+0012-anubis-supervise-runtime-changes-without-Docker-access.patch

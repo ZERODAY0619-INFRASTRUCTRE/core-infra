@@ -340,8 +340,13 @@
     "volumes": [
       {
         "type": "bind",
-        "target": "/etc/anubis/botPolicies.yaml",
+        "target": "/etc/anubis/botPolicies.json",
         "read_only": true
+      },
+      {
+        "type": "volume",
+        "target": "/control",
+        "source": "pcpm-anubis-control"
       }
     ]
   },
@@ -701,6 +706,11 @@
         "type": "volume",
         "target": "/app/data",
         "source": "pcpm-manager-data"
+      },
+      {
+        "type": "volume",
+        "target": "/run/cpm-anubis",
+        "source": "pcpm-anubis-control"
       },
       {
         "type": "volume",

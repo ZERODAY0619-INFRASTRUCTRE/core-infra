@@ -40,6 +40,8 @@ def main():
         assert internal["image"] == public["image"], "Instances must use one image"
         assert internal["build"] == public["build"], "Instances must use one build"
         assert pathlib.Path(internal["build"]["context"]) == app
+    assert s["pcpm-anubis"]["user"] == "10001:10001"
+    assert pathlib.Path(s["pcpm-anubis"]["build"]["context"]) == app
     envs = {instance: s[instance + "-web"]["environment"] for instance in ("icpm", "pcpm")}
     assert all(not service.get("env_file") for service in s.values()), "Use only the root .env"
     assert not envs["icpm"].get("ANUBIS_PROTECTED_DOMAIN")
@@ -63,6 +65,6 @@ def main():
         assert not (p.name.startswith(".env") and p.name != ".env.example"), f
     with tempfile.TemporaryDirectory() as output:
         render(site, pathlib.Path(output))
-    print("PASS: pinned upstream + custom patch, both instance profiles, original network/volume contracts, bind paths and tracked file exclusions")
+    print("PASS: pinned upstream + custom patch, both instance profiles, network/volume contracts, bind paths and tracked file exclusions")
 
 if __name__ == "__main__": main()

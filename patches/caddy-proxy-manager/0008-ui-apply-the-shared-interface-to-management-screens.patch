@@ -1,7 +1,7 @@
 From 8c36d7f78d6494d49c65ea7f7835067a2f946439 Mon Sep 17 00:00:00 2001
 From: zeroday0619 <escha@zeroday0619.dev>
 Date: Fri, 11 Sep 2026 07:00:07 +0000
-Subject: [PATCH 8/9] ui: apply the shared interface to management screens
+Subject: [PATCH 08/12] ui: apply the shared interface to management screens
 
 Use the shared presentation components across authentication, overview
 and management screens. Retain the deployed responsive layouts and

@@ -1,0 +1,311 @@
+From 275cfe20f3106de0c1e6442580e83326787a5e2c Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Fri, 11 Sep 2026 07:37:43 +0000
+Subject: [PATCH 11/12] ui: expose Anubis policy and challenge controls
+
+Add global protection and challenge settings to the security settings
+panel. Provide accessible per-host toggles on desktop and mobile, with
+explicit scope, paused, applying and failure states.
+---
+ .../proxy-hosts/ProxyHostsClient.tsx          | 12 ++-
+ app/(dashboard)/proxy-hosts/page.tsx          |  2 +
+ app/(dashboard)/settings/SettingsClient.tsx   |  3 +
+ src/components/anubis/AnubisSettings.tsx      | 76 +++++++++++++++++++
+ src/components/anubis/AnubisToggle.tsx        | 74 ++++++++++++++++++
+ tests/runtime/anubis-toggle.test.tsx          | 29 +++++++
+ 6 files changed, 195 insertions(+), 1 deletion(-)
+ create mode 100644 src/components/anubis/AnubisSettings.tsx
+ create mode 100644 src/components/anubis/AnubisToggle.tsx
+ create mode 100644 tests/runtime/anubis-toggle.test.tsx
+
+diff --git a/app/(dashboard)/proxy-hosts/ProxyHostsClient.tsx b/app/(dashboard)/proxy-hosts/ProxyHostsClient.tsx
+index 7dd485c0bba4d2a0ba0a93529e8c9c54fe9c4418..d34259b692418bb6bcf55b106c5db912b6eebfcd 100644
+--- a/app/(dashboard)/proxy-hosts/ProxyHostsClient.tsx
++++ b/app/(dashboard)/proxy-hosts/ProxyHostsClient.tsx
+@@ -1,5 +1,7 @@
+ "use client";
+ 
++import { AnubisToggle } from "@/src/components/anubis/AnubisToggle";
++import type { AnubisStatus } from "@/src/lib/anubis-policy";
+ import { useEffect, useRef, useState } from "react";
+ import { useRouter, usePathname, useSearchParams } from "next/navigation";
+ import { Globe, MoreHorizontal, ArrowRight, Shield, Bug, MapPin, Scale, KeyRound, UserCheck, CornerRightDown, Replace, Ban, GitBranch, ShieldCheck, LogIn } from "lucide-react";
+@@ -33,6 +35,7 @@ type ForwardAuthGroup = { id: number; name: string; description: string | null;
+ type ForwardAuthAccessMap = Record<number, { userIds: number[]; groupIds: number[] }>;
+ 
+ type Props = {
++  anubis?: AnubisStatus;
+   hosts: ProxyHost[];
+   certificates: CertificatePickerOption[];
+   accessLists: AccessList[];
+@@ -48,7 +51,7 @@ type Props = {
+   forwardAuthAccessMap?: ForwardAuthAccessMap;
+ };
+ 
+-export default function ProxyHostsClient({ hosts, certificates, accessLists, caCertificates, authentikDefaults, pagination, initialSearch, initialSort, mtlsRoles, issuedClientCerts, forwardAuthUsers, forwardAuthGroups, forwardAuthAccessMap }: Props) {
++export default function ProxyHostsClient({ anubis, hosts, certificates, accessLists, caCertificates, authentikDefaults, pagination, initialSearch, initialSort, mtlsRoles, issuedClientCerts, forwardAuthUsers, forwardAuthGroups, forwardAuthAccessMap }: Props) {
+   const [createOpen, setCreateOpen] = useState(false);
+   const [duplicateHost, setDuplicateHost] = useState<ProxyHost | null>(null);
+   const [editHost, setEditHost] = useState<ProxyHost | null>(null);
+@@ -204,6 +207,12 @@ export default function ProxyHostsClient({ hosts, certificates, accessLists, caC
+         );
+       },
+     },
++    {
++      id: "anubis",
++      label: "Anubis",
++      width: 210,
++      render: (host: ProxyHost) => <AnubisToggle initial={anubis} host={host} />,
++    },
+     {
+       id: "status",
+       label: "Status",
+@@ -288,6 +297,7 @@ export default function ProxyHostsClient({ hosts, certificates, accessLists, caC
+             </DropdownMenu>
+           </div>
+         </div>
++        <div className="mt-3 border-t pt-3"><AnubisToggle initial={anubis} host={host} /></div>
+       </CardContent>
+     </Card>
+   );
+diff --git a/app/(dashboard)/proxy-hosts/page.tsx b/app/(dashboard)/proxy-hosts/page.tsx
+index e830aad433c5c2a7eb048cac5b04ac7a8bde38b8..a7462420e32ce7169dc2d6db44981436ebb65773 100644
+--- a/app/(dashboard)/proxy-hosts/page.tsx
++++ b/app/(dashboard)/proxy-hosts/page.tsx
+@@ -1,3 +1,4 @@
++import { getAnubisStatus } from "@/src/lib/anubis-settings";
+ import ProxyHostsClient from "./ProxyHostsClient";
+ import { listProxyHostsPaginated, countProxyHosts } from "@/src/lib/models/proxy-hosts";
+ import { listCertificates } from "@/src/lib/models/certificates";
+@@ -73,6 +74,7 @@ export default async function ProxyHostsPage({ searchParams }: PageProps) {
+   return (
+     <ProxyHostsClient
+       hosts={hosts}
++      anubis={await getAnubisStatus()}
+       certificates={certificates.map(toCertificatePickerOption)}
+       caCertificates={caCertificates}
+       accessLists={accessLists}
+diff --git a/app/(dashboard)/settings/SettingsClient.tsx b/app/(dashboard)/settings/SettingsClient.tsx
+index e3f4ea2f9a3f74cbee9127428da7d42530e5d504..0db0ec649085905777e4f224b394fa2d81e11842 100644
+--- a/app/(dashboard)/settings/SettingsClient.tsx
++++ b/app/(dashboard)/settings/SettingsClient.tsx
+@@ -1,5 +1,6 @@
+ "use client";
+ 
++import { AnubisSettings } from "@/src/components/anubis/AnubisSettings";
+ import { useState, useActionState, useEffect, type ReactNode } from "react";
+ import {
+   Cloud, Globe, Network, Pin, Activity,
+@@ -105,6 +106,7 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
+     id: "security",
+     label: "Security",
+     items: [
++      { id: "anubis", name: "Anubis", desc: "Global bot protection and per-host controls", icon: <ShieldCheck className="h-4 w-4" /> },
+       { id: "geoblock", name: "Global Geoblocking", desc: "Default geoblock rules across all hosts", icon: <MapPin className="h-4 w-4" /> },
+       { id: "error-pages", name: "Error Pages", desc: "Global custom error responses (fallback for all hosts)", icon: <FileWarning className="h-4 w-4" /> },
+       { id: "authentik", name: "Authentik Defaults", desc: "Forward-auth defaults for new proxy hosts", icon: <UserCheck className="h-4 w-4" /> },
+@@ -617,6 +619,7 @@ export default function SettingsClient({
+                   setTrustedProxiesOverride={setTrustedProxiesOverride}
+                 />
+               )}
++              {active === "anubis" && <AnubisSettings />}
+               {active === "geoblock" && (
+                 <GeoBlockSection
+                   globalGeoBlock={globalGeoBlock}
+diff --git a/src/components/anubis/AnubisSettings.tsx b/src/components/anubis/AnubisSettings.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..b6e9c9bed5a22871d7d9faa0bb950527bfdd2960
+--- /dev/null
++++ b/src/components/anubis/AnubisSettings.tsx
+@@ -0,0 +1,76 @@
++"use client";
++import { useEffect, useState } from "react";
++import { AnubisToggle } from "./AnubisToggle";
++import { DEFAULT_ANUBIS_OPTIONS, type AnubisOptions } from "@/src/lib/anubis-options";
++import type { AnubisStatus } from "@/src/lib/anubis-policy";
++import { Button } from "@/components/ui/button";
++import { Input } from "@/components/ui/input";
++import { Label } from "@/components/ui/label";
++import { Switch } from "@/components/ui/switch";
++
++export function AnubisSettings() {
++  const [status, setStatus] = useState<AnubisStatus>();
++  const [options, setOptions] = useState<AnubisOptions>({ ...DEFAULT_ANUBIS_OPTIONS });
++  const [pending, setPending] = useState(false);
++  const [error, setError] = useState("");
++  const [saved, setSaved] = useState(false);
++  useEffect(() => {
++    const controller = new AbortController();
++    fetch("/api/v1/anubis", { cache: "no-store", signal: controller.signal }).then(async r => {
++      if (!r.ok) throw new Error();
++      const data = await r.json() as AnubisStatus;
++      setStatus(data); setOptions(data.options ?? { ...DEFAULT_ANUBIS_OPTIONS });
++    }).catch(() => { if (!controller.signal.aborted) setError("Unable to load Anubis settings. Reload to retry."); });
++    return () => controller.abort();
++  }, []);
++  function change<K extends keyof AnubisOptions>(key: K, value: AnubisOptions[K]) {
++    setOptions(previous => ({ ...previous, [key]: value })); setSaved(false);
++  }
++  async function save(event: React.FormEvent) {
++    event.preventDefault(); setPending(true); setError(""); setSaved(false);
++    try {
++      const r = await fetch("/api/v1/anubis", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ options }) });
++      if (!r.ok) {
++        const data = await r.json().catch(() => null);
++        throw new Error(data?.error || "Unable to apply Anubis settings");
++      }
++      setSaved(true);
++    } catch (error) { setError(error instanceof Error ? error.message : "Unable to apply settings"); }
++    finally { setPending(false); }
++  }
++  return <div className="space-y-6">
++    {status && <AnubisToggle initial={status} />}
++    <form onSubmit={save} className="rounded-xl border p-5 space-y-4">
++      <h2 className="font-semibold">Challenge and session settings</h2>
++      <p className="text-sm text-muted-foreground">Saving briefly restarts Anubis to apply these settings. Proxy host choices are preserved.</p>
++      {status && !status.configurable && <p className="text-sm text-muted-foreground">Runtime configuration is unavailable for this instance.</p>}
++      <fieldset disabled={!status?.configurable || pending} className="space-y-4 disabled:opacity-60">
++        <div className="grid gap-4 sm:grid-cols-2">
++          <div className="space-y-2"><Label htmlFor="anubis-algorithm">Challenge method</Label>
++            <select id="anubis-algorithm" className="w-full rounded-md border bg-background p-2 text-sm" value={options.algorithm} onChange={e => change("algorithm", e.target.value as AnubisOptions["algorithm"])}>
++              <option value="fast">Proof of work — fast</option><option value="slow">Proof of work — slow</option><option value="metarefresh">Browser refresh</option>
++            </select>
++          </div>
++          <div className="space-y-2"><Label htmlFor="anubis-difficulty">{options.algorithm === "metarefresh" ? "Refresh delay (seconds)" : "Challenge difficulty"}</Label>
++            <Input id="anubis-difficulty" type="number" min={1} max={8} step={1} required value={options.difficulty} onChange={e => change("difficulty", Number(e.target.value))} />
++            <p className="text-xs text-muted-foreground">1–8. Higher proof-of-work values require substantially more client processing.</p>
++          </div>
++          <div className="space-y-2"><Label htmlFor="anubis-cookie-hours">Authentication cookie lifetime (hours)</Label>
++            <Input id="anubis-cookie-hours" type="number" min={1} max={168} step={1} required value={options.cookieHours} onChange={e => change("cookieHours", Number(e.target.value))} />
++            <p className="text-xs text-muted-foreground">Applies to newly issued cookies; existing cookies retain their expiry.</p>
++          </div>
++          <div className="space-y-2"><Label htmlFor="anubis-language">Challenge language</Label>
++            <select id="anubis-language" className="w-full rounded-md border bg-background p-2 text-sm" value={options.language} onChange={e => change("language", e.target.value as AnubisOptions["language"])}>
++              <option value="">Browser preference</option><option value="en">English</option><option value="ko">한국어</option><option value="ja">日本語</option><option value="de">Deutsch</option><option value="fr">Français</option><option value="es">Español</option>
++            </select>
++          </div>
++        </div>
++        <div className="flex items-center gap-3"><Switch id="anubis-simplified" checked={options.simplified} onCheckedChange={value => change("simplified", value)} /><Label htmlFor="anubis-simplified">Use a simplified challenge explanation</Label></div>
++        <div className="flex items-center gap-3"><Switch id="anubis-robots" checked={options.robots} onCheckedChange={value => change("robots", value)} /><Label htmlFor="anubis-robots">Serve robots.txt that asks crawlers not to index protected hosts</Label></div>
++        <Button type="submit">{pending ? "Applying Anubis settings…" : "Save and apply"}</Button>
++      </fieldset>
++      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
++      {saved && <p role="status" className="text-sm text-muted-foreground">Settings applied. Anubis is healthy.</p>}
++    </form>
++  </div>;
++}
+diff --git a/src/components/anubis/AnubisToggle.tsx b/src/components/anubis/AnubisToggle.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..c498b992c02b79b9a89069ebcf4fa125a638d753
+--- /dev/null
++++ b/src/components/anubis/AnubisToggle.tsx
+@@ -0,0 +1,74 @@
++"use client";
++
++import { useEffect, useState } from "react";
++import { useRouter } from "next/navigation";
++import { Switch } from "@/components/ui/switch";
++import { inAnubisScope, type AnubisStatus } from "@/src/lib/anubis-policy";
++
++type Host = { id: number; name: string; domains: string[]; enabled: boolean; anubisEnabled?: boolean };
++
++export function AnubisToggle({ initial, host }: { initial?: AnubisStatus; host?: Host }) {
++  const router = useRouter();
++  const [status, setStatus] = useState<AnubisStatus | null>(initial ?? null);
++  const [enabled, setEnabled] = useState(host ? host.anubisEnabled !== false : initial?.enabled ?? false);
++  const [pending, setPending] = useState(false);
++  const [error, setError] = useState("");
++  const [saved, setSaved] = useState(false);
++  useEffect(() => {
++    if (initial) {
++      setStatus(initial);
++      setEnabled(host ? host.anubisEnabled !== false : initial.enabled);
++      return;
++    }
++    const controller = new AbortController();
++    fetch("/api/v1/anubis", { cache: "no-store", signal: controller.signal })
++      .then(async response => {
++        if (!response.ok) throw new Error("Unable to load Anubis settings");
++        const data = await response.json() as AnubisStatus;
++        setStatus(data); setEnabled(host ? host.anubisEnabled !== false : data.enabled);
++      })
++      .catch(() => { if (!controller.signal.aborted) setError("Unable to load Anubis settings. Reload to retry."); });
++    return () => controller.abort();
++  }, [initial, host?.id, host?.anubisEnabled]);
++
++  const inScope = !host || Boolean(status?.domain && host.domains.some(domain => inAnubisScope(domain, status.domain!)));
++  const available = Boolean(status?.available && inScope);
++  const label = host ? `Anubis for ${host.name}` : "Enable Anubis globally";
++  const effective = enabled && Boolean(status?.enabled) && (!host || host.enabled);
++  const note = !status ? "Loading…" : !status.available ? "Not configured for this instance"
++    : !inScope ? "Outside protected domain scope"
++    : host && !status.enabled ? "Paused — global protection is off"
++    : host && !host.enabled ? "Paused — proxy host is disabled"
++    : effective ? "Protection on" : "Protection off";
++
++  async function change(value: boolean) {
++    setPending(true); setError(""); setSaved(false);
++    try {
++      const response = await fetch("/api/v1/anubis", {
++        method: "PUT", headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ enabled: value, ...(host ? { hostId: host.id } : {}) }),
++      });
++      if (!response.ok) {
++        const data = await response.json().catch(() => null);
++        throw new Error(data?.error || "Unable to save Anubis settings");
++      }
++      setEnabled(value);
++      if (!host && status) setStatus({ ...status, enabled: value });
++      setSaved(true); router.refresh();
++    } catch (error) { setError(error instanceof Error ? error.message : "Unable to save Anubis settings"); }
++    finally { setPending(false); }
++  }
++
++  return <div className={host ? "flex max-w-56 flex-col gap-1" : "space-y-3 rounded-xl border p-5"}>
++    <div className="flex items-center gap-3">
++      <Switch aria-label={label} checked={available && enabled} disabled={!available || pending} onCheckedChange={change} />
++      <span className="text-sm font-medium">{host ? "Anubis" : label}</span>
++    </div>
++    <p className="text-xs text-muted-foreground" aria-live="polite">{pending ? "Applying…" : note}{saved && !pending ? " · Saved" : ""}</p>
++    {!host && <p className="text-sm text-muted-foreground">
++      Turning this off pauses Anubis for every proxy host in this instance. Host choices are kept and resume when enabled.
++      {status?.domain && <> Protection covers direct subdomains of {status.domain}. Choose individual hosts in Proxy Hosts.</>}
++    </p>}
++    {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
++  </div>;
++}
+diff --git a/tests/runtime/anubis-toggle.test.tsx b/tests/runtime/anubis-toggle.test.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..5e5b458bbbc3c79cf6e597c1b1be9ec344197aca
+--- /dev/null
++++ b/tests/runtime/anubis-toggle.test.tsx
+@@ -0,0 +1,29 @@
++import { expect, test, mock } from "bun:test";
++import React from "react";
++import { renderToStaticMarkup } from "react-dom/server";
++mock.module("next/navigation", () => ({ useRouter: () => ({ refresh() {} }) }));
++const { AnubisToggle } = await import("../../src/components/anubis/AnubisToggle");
++const status = { available: true, enabled: true, domain: "example.test" };
++const host = { id: 1, name: "App", domains: ["app.example.test"], enabled: true, anubisEnabled: true };
++
++test("global toggle is labeled and explains that host preferences survive", () => {
++  const html = renderToStaticMarkup(<AnubisToggle initial={status} />);
++  expect(html).toContain('aria-label="Enable Anubis globally"');
++  expect(html).toContain('aria-checked="true"');
++  expect(html).toContain("Host choices are kept");
++});
++test("global off pauses host protection while preserving its selected toggle", () => {
++  const html = renderToStaticMarkup(<AnubisToggle initial={{ ...status, enabled: false }} host={host} />);
++  expect(html).toContain('aria-checked="true"');
++  expect(html).toContain("Paused — global protection is off");
++});
++test("unavailable instances and out-of-scope hosts cannot be toggled", () => {
++  const internal = renderToStaticMarkup(<AnubisToggle initial={{ available: false, enabled: false, domain: null }} />);
++  expect(internal).toContain('disabled=""'); expect(internal).toContain("Not configured");
++  const outside = renderToStaticMarkup(<AnubisToggle initial={status} host={{ ...host, domains: ["other.test"] }} />);
++  expect(outside).toContain('disabled=""'); expect(outside).toContain("Outside protected domain scope");
++});
++test("an opted-out host stays unchecked even when global protection is on", () => {
++  const html = renderToStaticMarkup(<AnubisToggle initial={status} host={{ ...host, anubisEnabled: false }} />);
++  expect(html).toContain('aria-checked="false"'); expect(html).toContain("Protection off");
++});

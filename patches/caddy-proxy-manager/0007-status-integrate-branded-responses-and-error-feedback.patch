@@ -1,7 +1,7 @@
 From 14b82e9e65c2021c51d3129c9bd4df96203b8c90 Mon Sep 17 00:00:00 2001
 From: zeroday0619 <escha@zeroday0619.dev>
 Date: Fri, 11 Sep 2026 07:00:06 +0000
-Subject: [PATCH 7/9] status: integrate branded responses and error feedback
+Subject: [PATCH 07/12] status: integrate branded responses and error feedback
 
 Unify proxy and application status responses, maintenance handling and
 error feedback using the shared presentation primitives. Carry Caddy
