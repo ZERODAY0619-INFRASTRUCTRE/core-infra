@@ -1,0 +1,26 @@
+table inet cpm {
+    chain input {
+        type filter hook input priority -150; policy drop;
+        ct state invalid drop
+        meta nfproto ipv6 drop
+        ct state established,related accept
+        iifname "lo" ip saddr 127.0.0.1 accept
+        ip saddr 100.64.0.0/10 tcp dport 3000 accept
+        # Source-NAT from the dedicated ICPM management relay.
+        ip saddr 172.30.81.4 tcp dport 3000 accept
+    }
+    chain forward {
+        type filter hook forward priority -150; policy drop;
+    }
+    chain output {
+        # Before Docker's OUTPUT DNS DNAT (-100): block 127.0.0.11 too.
+        type filter hook output priority -150; policy drop;
+        ct state invalid drop
+        meta nfproto ipv6 drop
+        ct state established,related accept
+        oifname "lo" ip daddr 127.0.0.1 accept
+        # Authentik discovery, token, userinfo and signing keys via the public SSO TLS frontend.
+        ip daddr 172.30.81.2 tcp dport 443 accept
+        ip daddr 172.30.81.2 tcp dport 2019 accept
+    }
+}

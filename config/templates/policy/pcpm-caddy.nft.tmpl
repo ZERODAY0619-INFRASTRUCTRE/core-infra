@@ -1,0 +1,31 @@
+table inet cpm {
+    chain input {
+        type filter hook input priority -150; policy drop;
+        ct state invalid drop
+        meta nfproto ipv6 drop
+        ct state established,related accept
+        iifname "lo" ip saddr 127.0.0.1 accept
+        ip saddr 100.64.0.0/10 tcp dport 9090 accept
+        ip saddr 172.30.81.3 tcp dport 2019 accept
+        tcp dport { 80, 443 } accept
+    }
+    chain forward {
+        type filter hook forward priority -150; policy drop;
+    }
+    chain output {
+        # Before Docker's OUTPUT DNS DNAT (-100): block 127.0.0.11 too.
+        type filter hook output priority -150; policy drop;
+        ct state invalid drop
+        meta nfproto ipv6 drop
+        ct state established,related accept
+        oifname "lo" ip daddr 127.0.0.1 accept
+        # Docker embedded DNS for hostname backends and ACME.
+        ip daddr 127.0.0.11 udp dport 53 accept
+        ip daddr 127.0.0.11 tcp dport 53 accept
+        # Preserve management and metadata isolation.
+        ip daddr { 172.30.80.0/24, 172.30.81.0/24, 127.0.0.0/8, 169.254.0.0/16, @@PUBLIC_BIND_IP@@, @@HOST_TAILNET_IP@@ } drop
+        # DNS-01 propagation checks query authoritative DNS servers directly.
+        udp dport 53 accept
+        meta l4proto tcp accept
+    }
+}

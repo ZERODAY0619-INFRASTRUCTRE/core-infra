@@ -1,0 +1,5 @@
+# Temporary rollback: compose with the ROOT compose.yaml first.
+services:
+  pcpm-web:
+    environment:
+      ANUBIS_PROTECTED_DOMAIN: ""

@@ -1,0 +1,14 @@
+[Unit]
+Description=Observe public Tailscale endpoints for CPM country estimates
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/infra/deployment/observe-tailnet.py
+TimeoutStartSec=9
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/infra/deployment/runtime
+UMask=0027

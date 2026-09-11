@@ -1,0 +1,877 @@
+{
+  "icpm-caddy": {
+    "network_mode": "service:icpm-caddy-net",
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "restart": "no",
+    "depends_on": {
+      "icpm-caddy-net": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "healthcheck": {
+      "test": [
+        "CMD",
+        "wget",
+        "--quiet",
+        "--tries=1",
+        "-O",
+        "/dev/null",
+        "http://localhost:2019/config/"
+      ],
+      "timeout": "5s",
+      "interval": "10s",
+      "retries": 6,
+      "start_period": "15s"
+    },
+    "volumes": [
+      {
+        "type": "volume",
+        "target": "/data",
+        "source": "icpm-caddy-data"
+      },
+      {
+        "type": "volume",
+        "target": "/config",
+        "source": "icpm-caddy-config"
+      },
+      {
+        "type": "volume",
+        "target": "/logs",
+        "source": "icpm-logs"
+      },
+      {
+        "type": "volume",
+        "target": "/usr/share/GeoIP",
+        "read_only": true,
+        "source": "icpm-geoip"
+      },
+      {
+        "type": "volume",
+        "target": "/acme-ca",
+        "read_only": true,
+        "source": "icpm-acme"
+      },
+      {
+        "type": "bind",
+        "target": "/etc/caddy/Caddyfile",
+        "read_only": true
+      }
+    ]
+  },
+  "icpm-caddy-net": {
+    "networks": {
+      "icpm": {
+        "ipv4_address": "172.30.80.2"
+      }
+    },
+    "cap_add": [
+      "NET_ADMIN"
+    ],
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "read_only": true,
+    "restart": "no",
+    "depends_on": {
+      "tailscale": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "sysctls": {
+      "net.ipv4.ip_unprivileged_port_start": "0",
+      "net.ipv6.conf.all.disable_ipv6": "1"
+    },
+    "healthcheck": {
+      "test": [
+        "CMD-SHELL",
+        "test -f /tmp/cpm-ready && nft list table inet cpm >/dev/null"
+      ],
+      "timeout": "3s",
+      "interval": "5s",
+      "retries": 5
+    },
+    "volumes": [
+      {
+        "type": "bind",
+        "target": "/etc/cpm/rules.nft",
+        "read_only": true
+      },
+      {
+        "type": "bind",
+        "target": "/etc/cpm/policy",
+        "read_only": true
+      }
+    ]
+  },
+  "icpm-clickhouse": {
+    "network_mode": "service:icpm-web-net",
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "restart": "no",
+    "depends_on": {
+      "icpm-web-net": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "healthcheck": {
+      "test": [
+        "CMD-SHELL",
+        "clickhouse-client --host 127.0.0.1 --user cpm --password \"$$CLICKHOUSE_PASSWORD\" --query \"SELECT 1\""
+      ],
+      "timeout": "5s",
+      "interval": "10s",
+      "retries": 12,
+      "start_period": "30s"
+    },
+    "profiles": [
+      "clickhouse"
+    ],
+    "volumes": [
+      {
+        "type": "volume",
+        "target": "/var/lib/clickhouse",
+        "source": "icpm-clickhouse-data"
+      },
+      {
+        "type": "volume",
+        "target": "/var/log/clickhouse-server",
+        "source": "icpm-clickhouse-logs"
+      },
+      {
+        "type": "bind",
+        "target": "/etc/clickhouse-server/config.d/low-disk-write.xml",
+        "read_only": true
+      },
+      {
+        "type": "bind",
+        "target": "/etc/clickhouse-server/config.d/zz-local.xml",
+        "read_only": true
+      }
+    ]
+  },
+  "icpm-geoipupdate": {
+    "networks": {
+      "geoip-egress": null
+    },
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "read_only": true,
+    "restart": "no",
+    "healthcheck": {
+      "test": [
+        "CMD-SHELL",
+        "test -s /usr/share/GeoIP/GeoLite2-Country.mmdb && test -s /usr/share/GeoIP/GeoLite2-ASN.mmdb"
+      ],
+      "timeout": "3s",
+      "interval": "10s",
+      "retries": 18,
+      "start_period": "30s"
+    },
+    "profiles": [
+      "geoipupdate"
+    ],
+    "volumes": [
+      {
+        "type": "volume",
+        "target": "/usr/share/GeoIP",
+        "source": "icpm-geoip"
+      }
+    ]
+  },
+  "icpm-web": {
+    "network_mode": "service:icpm-web-net",
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "restart": "no",
+    "depends_on": {
+      "icpm-caddy": {
+        "condition": "service_healthy",
+        "required": true
+      },
+      "icpm-clickhouse": {
+        "condition": "service_healthy",
+        "required": false
+      },
+      "icpm-web-net": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "healthcheck": {
+      "test": [
+        "CMD",
+        "bun",
+        "-e",
+        "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      ],
+      "timeout": "5s",
+      "interval": "15s",
+      "retries": 6,
+      "start_period": "40s"
+    },
+    "volumes": [
+      {
+        "type": "volume",
+        "target": "/app/data",
+        "source": "icpm-manager-data"
+      },
+      {
+        "type": "bind",
+        "target": "/run/cpm-observations",
+        "read_only": true
+      },
+      {
+        "type": "volume",
+        "target": "/logs",
+        "source": "icpm-logs"
+      },
+      {
+        "type": "volume",
+        "target": "/usr/share/GeoIP",
+        "read_only": true,
+        "source": "icpm-geoip"
+      },
+      {
+        "type": "volume",
+        "target": "/acme-ca",
+        "source": "icpm-acme"
+      }
+    ]
+  },
+  "icpm-web-net": {
+    "networks": {
+      "icpm": {
+        "ipv4_address": "172.30.80.3"
+      }
+    },
+    "cap_add": [
+      "NET_ADMIN"
+    ],
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "read_only": true,
+    "restart": "no",
+    "depends_on": {
+      "tailscale": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "sysctls": {
+      "net.ipv4.ip_unprivileged_port_start": "0",
+      "net.ipv6.conf.all.disable_ipv6": "1"
+    },
+    "healthcheck": {
+      "test": [
+        "CMD-SHELL",
+        "test -f /tmp/cpm-ready && nft list table inet cpm >/dev/null"
+      ],
+      "timeout": "3s",
+      "interval": "5s",
+      "retries": 5
+    },
+    "volumes": [
+      {
+        "type": "bind",
+        "target": "/etc/cpm/rules.nft",
+        "read_only": true
+      },
+      {
+        "type": "bind",
+        "target": "/etc/cpm/policy",
+        "read_only": true
+      }
+    ]
+  },
+  "pcpm-anubis": {
+    "network_mode": "service:pcpm-caddy-net",
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "read_only": true,
+    "restart": "no",
+    "depends_on": {
+      "pcpm-caddy-net": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "healthcheck": {
+      "test": [
+        "CMD",
+        "/ko-app/anubis",
+        "--healthcheck"
+      ],
+      "timeout": "5s",
+      "interval": "10s",
+      "retries": 6,
+      "start_period": "10s"
+    },
+    "volumes": [
+      {
+        "type": "bind",
+        "target": "/etc/anubis/botPolicies.yaml",
+        "read_only": true
+      }
+    ]
+  },
+  "pcpm-authentik-relay": {
+    "network_mode": "service:pcpm-caddy-net",
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "read_only": true,
+    "restart": "no",
+    "depends_on": {
+      "pcpm-caddy-net": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "healthcheck": {
+      "test": [
+        "CMD",
+        "wget",
+        "--quiet",
+        "--tries=1",
+        "-O",
+        "/dev/null",
+        "http://127.0.0.1:8927/outpost.goauthentik.io/ping"
+      ],
+      "timeout": "5s",
+      "interval": "10s",
+      "retries": 6,
+      "start_period": "10s"
+    },
+    "volumes": [
+      {
+        "type": "bind",
+        "target": "/etc/caddy/authentik-outpost.Caddyfile",
+        "read_only": true
+      }
+    ]
+  },
+  "pcpm-caddy": {
+    "network_mode": "service:pcpm-caddy-net",
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "restart": "no",
+    "depends_on": {
+      "pcpm-caddy-net": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "healthcheck": {
+      "test": [
+        "CMD",
+        "wget",
+        "--quiet",
+        "--tries=1",
+        "-O",
+        "/dev/null",
+        "http://localhost:2019/config/"
+      ],
+      "timeout": "5s",
+      "interval": "10s",
+      "retries": 6,
+      "start_period": "15s"
+    },
+    "volumes": [
+      {
+        "type": "volume",
+        "target": "/data",
+        "source": "pcpm-caddy-data"
+      },
+      {
+        "type": "volume",
+        "target": "/config",
+        "source": "pcpm-caddy-config"
+      },
+      {
+        "type": "volume",
+        "target": "/logs",
+        "source": "pcpm-logs"
+      },
+      {
+        "type": "volume",
+        "target": "/usr/share/GeoIP",
+        "read_only": true,
+        "source": "pcpm-geoip"
+      },
+      {
+        "type": "volume",
+        "target": "/acme-ca",
+        "read_only": true,
+        "source": "pcpm-acme"
+      },
+      {
+        "type": "bind",
+        "target": "/etc/caddy/Caddyfile",
+        "read_only": true
+      }
+    ]
+  },
+  "pcpm-caddy-net": {
+    "networks": {
+      "pcpm": {
+        "ipv4_address": "172.30.81.2"
+      }
+    },
+    "ports": [
+      {
+        "mode": "ingress",
+        "host_ip": "192.0.2.10",
+        "target": 80,
+        "published": "80",
+        "protocol": "tcp"
+      },
+      {
+        "mode": "ingress",
+        "host_ip": "192.0.2.10",
+        "target": 443,
+        "published": "443",
+        "protocol": "tcp"
+      }
+    ],
+    "cap_add": [
+      "NET_ADMIN"
+    ],
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "read_only": true,
+    "restart": "no",
+    "depends_on": {
+      "tailscale": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "sysctls": {
+      "net.ipv4.ip_unprivileged_port_start": "0",
+      "net.ipv6.conf.all.disable_ipv6": "1"
+    },
+    "healthcheck": {
+      "test": [
+        "CMD-SHELL",
+        "test -f /tmp/cpm-ready && nft list table inet cpm >/dev/null"
+      ],
+      "timeout": "3s",
+      "interval": "5s",
+      "retries": 5
+    },
+    "volumes": [
+      {
+        "type": "bind",
+        "target": "/etc/cpm/rules.nft",
+        "read_only": true
+      },
+      {
+        "type": "bind",
+        "target": "/etc/cpm/policy",
+        "read_only": true
+      }
+    ]
+  },
+  "pcpm-clickhouse": {
+    "network_mode": "service:pcpm-web-net",
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "restart": "no",
+    "depends_on": {
+      "pcpm-web-net": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "healthcheck": {
+      "test": [
+        "CMD-SHELL",
+        "clickhouse-client --host 127.0.0.1 --user cpm --password \"$$CLICKHOUSE_PASSWORD\" --query \"SELECT 1\""
+      ],
+      "timeout": "5s",
+      "interval": "10s",
+      "retries": 12,
+      "start_period": "30s"
+    },
+    "profiles": [
+      "clickhouse"
+    ],
+    "volumes": [
+      {
+        "type": "volume",
+        "target": "/var/lib/clickhouse",
+        "source": "pcpm-clickhouse-data"
+      },
+      {
+        "type": "volume",
+        "target": "/var/log/clickhouse-server",
+        "source": "pcpm-clickhouse-logs"
+      },
+      {
+        "type": "bind",
+        "target": "/etc/clickhouse-server/config.d/low-disk-write.xml",
+        "read_only": true
+      },
+      {
+        "type": "bind",
+        "target": "/etc/clickhouse-server/config.d/zz-local.xml",
+        "read_only": true
+      }
+    ]
+  },
+  "pcpm-feedback": {
+    "network_mode": "service:pcpm-caddy-net",
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "read_only": true,
+    "restart": "no",
+    "depends_on": {
+      "pcpm-caddy-net": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "healthcheck": {
+      "test": [
+        "CMD",
+        "bun",
+        "-e",
+        "fetch('http://127.0.0.1:8930/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      ],
+      "timeout": "3s",
+      "interval": "10s",
+      "retries": 6,
+      "start_period": "10s"
+    },
+    "volumes": [
+      {
+        "type": "volume",
+        "target": "/app/feedback",
+        "source": "pcpm-feedback-data"
+      },
+      {
+        "type": "bind",
+        "target": "/feedback/server.ts",
+        "read_only": true
+      },
+      {
+        "type": "bind",
+        "target": "/feedback/error-feedback.ts",
+        "read_only": true
+      },
+      {
+        "type": "bind",
+        "target": "/feedback/error-feedback-handler.ts",
+        "read_only": true
+      }
+    ]
+  },
+  "pcpm-geoipupdate": {
+    "networks": {
+      "geoip-egress": null
+    },
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "read_only": true,
+    "restart": "no",
+    "healthcheck": {
+      "test": [
+        "CMD-SHELL",
+        "test -s /usr/share/GeoIP/GeoLite2-Country.mmdb && test -s /usr/share/GeoIP/GeoLite2-ASN.mmdb"
+      ],
+      "timeout": "3s",
+      "interval": "10s",
+      "retries": 18,
+      "start_period": "30s"
+    },
+    "profiles": [
+      "geoipupdate"
+    ],
+    "volumes": [
+      {
+        "type": "volume",
+        "target": "/usr/share/GeoIP",
+        "source": "pcpm-geoip"
+      }
+    ]
+  },
+  "pcpm-web": {
+    "network_mode": "service:pcpm-web-net",
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "restart": "no",
+    "depends_on": {
+      "pcpm-anubis": {
+        "condition": "service_healthy",
+        "required": true
+      },
+      "pcpm-authentik-relay": {
+        "condition": "service_healthy",
+        "required": true
+      },
+      "pcpm-caddy": {
+        "condition": "service_healthy",
+        "required": true
+      },
+      "pcpm-clickhouse": {
+        "condition": "service_healthy",
+        "required": false
+      },
+      "pcpm-feedback": {
+        "condition": "service_healthy",
+        "required": true
+      },
+      "pcpm-web-net": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "healthcheck": {
+      "test": [
+        "CMD",
+        "bun",
+        "-e",
+        "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      ],
+      "timeout": "5s",
+      "interval": "15s",
+      "retries": 6,
+      "start_period": "40s"
+    },
+    "volumes": [
+      {
+        "type": "volume",
+        "target": "/app/data",
+        "source": "pcpm-manager-data"
+      },
+      {
+        "type": "volume",
+        "target": "/app/feedback",
+        "source": "pcpm-feedback-data"
+      },
+      {
+        "type": "bind",
+        "target": "/run/cpm-observations",
+        "read_only": true
+      },
+      {
+        "type": "volume",
+        "target": "/logs",
+        "source": "pcpm-logs"
+      },
+      {
+        "type": "volume",
+        "target": "/usr/share/GeoIP",
+        "read_only": true,
+        "source": "pcpm-geoip"
+      },
+      {
+        "type": "volume",
+        "target": "/acme-ca",
+        "source": "pcpm-acme"
+      }
+    ]
+  },
+  "pcpm-web-net": {
+    "networks": {
+      "pcpm": {
+        "ipv4_address": "172.30.81.3"
+      }
+    },
+    "cap_add": [
+      "NET_ADMIN"
+    ],
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "read_only": true,
+    "restart": "no",
+    "depends_on": {
+      "tailscale": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "sysctls": {
+      "net.ipv4.ip_unprivileged_port_start": "0",
+      "net.ipv6.conf.all.disable_ipv6": "1"
+    },
+    "healthcheck": {
+      "test": [
+        "CMD-SHELL",
+        "test -f /tmp/cpm-ready && nft list table inet cpm >/dev/null"
+      ],
+      "timeout": "3s",
+      "interval": "5s",
+      "retries": 5
+    },
+    "volumes": [
+      {
+        "type": "bind",
+        "target": "/etc/cpm/rules.nft",
+        "read_only": true
+      },
+      {
+        "type": "bind",
+        "target": "/etc/cpm/policy",
+        "read_only": true
+      }
+    ]
+  },
+  "tailscale": {
+    "network_mode": "service:tailscale-net",
+    "cap_add": [
+      "NET_ADMIN",
+      "NET_RAW"
+    ],
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "restart": "no",
+    "depends_on": {
+      "tailscale-net": {
+        "condition": "service_healthy",
+        "required": true
+      }
+    },
+    "devices": [
+      {
+        "source": "/dev/net/tun",
+        "target": "/dev/net/tun",
+        "permissions": "rwm"
+      }
+    ],
+    "healthcheck": {
+      "test": [
+        "CMD-SHELL",
+        "tailscale status --json | grep -q '\"BackendState\": \"Running\"'"
+      ],
+      "timeout": "3s",
+      "interval": "5s",
+      "retries": 24,
+      "start_period": "15s"
+    },
+    "volumes": [
+      {
+        "type": "volume",
+        "target": "/var/lib/tailscale",
+        "source": "tailscale-state"
+      }
+    ]
+  },
+  "tailscale-net": {
+    "networks": {
+      "icpm": {
+        "ipv4_address": "172.30.80.4"
+      },
+      "pcpm": {
+        "ipv4_address": "172.30.81.4"
+      },
+      "transport": {
+        "gw_priority": 1
+      }
+    },
+    "cap_add": [
+      "NET_ADMIN"
+    ],
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "read_only": true,
+    "restart": "no",
+    "sysctls": {
+      "net.ipv4.conf.all.rp_filter": "0",
+      "net.ipv4.conf.default.rp_filter": "0",
+      "net.ipv4.ip_forward": "1",
+      "net.ipv6.conf.all.disable_ipv6": "0"
+    },
+    "healthcheck": {
+      "test": [
+        "CMD-SHELL",
+        "test -f /tmp/cpm-ready && nft list table inet cpm >/dev/null"
+      ],
+      "timeout": "3s",
+      "interval": "5s",
+      "retries": 5
+    },
+    "volumes": [
+      {
+        "type": "bind",
+        "target": "/etc/cpm/rules.nft",
+        "read_only": true
+      },
+      {
+        "type": "bind",
+        "target": "/etc/cpm/policy",
+        "read_only": true
+      }
+    ]
+  }
+}

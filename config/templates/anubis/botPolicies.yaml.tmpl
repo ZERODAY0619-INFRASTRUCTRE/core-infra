@@ -1,0 +1,15 @@
+# No User-Agent or client-provided header grants a bypass.
+# Exceptions retain Authentik's own client/token authentication.
+bots:
+  - name: authentik-oidc-protocol
+    expression: >-
+      host.matches("(?i)^@@SSO_HOST_REGEX@@[.]?(?::443)?$") &&
+      (path.matches("^/application/o/(token|userinfo|introspect|revoke|device)/$") ||
+       path.matches("^/application/o/[a-zA-Z0-9_-]+/(jwks/|\\.well-known/openid-configuration/?)$"))
+    action: ALLOW
+  - name: external-browser-challenge
+    path_regex: .*
+    action: CHALLENGE
+    challenge:
+      algorithm: fast
+      difficulty: 4

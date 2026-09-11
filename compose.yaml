@@ -1,0 +1,489 @@
+# Run from this repository. See docs/MIGRATION.ko.md before production use.
+name: ${COMPOSE_PROJECT_NAME:-cpm-preview}
+x-guard: &guard
+  build:
+    context: ./deployment/netguard
+    # BuildKit bridge DNS fails on this host; only build RUN uses host networking.
+    network: host
+    entitlements: [network.host]
+  image: cpm-netguard:local
+  restart: "no"
+  cap_drop: [ALL]
+  cap_add: [NET_ADMIN]
+  security_opt: [no-new-privileges:true]
+  read_only: true
+  tmpfs: [/tmp]
+  sysctls:
+    net.ipv6.conf.all.disable_ipv6: "1"
+    net.ipv4.ip_unprivileged_port_start: "0"
+  healthcheck:
+    test: ["CMD-SHELL", "test -f /tmp/cpm-ready && nft list table inet cpm >/dev/null"]
+    interval: 5s
+    timeout: 3s
+    retries: 5
+x-app: &app
+  restart: "no"
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+x-web-env: &web-env
+  NODE_ENV: production
+  DATABASE_PATH: /app/data/caddy-proxy-manager.db
+  DATABASE_URL: file:/app/data/caddy-proxy-manager.db
+  AUTH_ALLOW_SELF_REGISTRATION: "false"
+  AUTH_ALLOW_OAUTH_REGISTRATION: "false"
+  OAUTH_ENABLED: "true"
+  CLICKHOUSE_URL: http://127.0.0.1:8123
+  CLICKHOUSE_USER: cpm
+  CLICKHOUSE_DB: analytics
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+  TAILSCALE_GEOIP_OBSERVATIONS: /run/cpm-observations/tailscale-peers.json
+  NEXT_TELEMETRY_DISABLED: "1"
+
+services:
+
+  tailscale-net:
+    <<: *guard
+    sysctls:
+      net.ipv4.ip_forward: "1"
+      net.ipv4.conf.all.rp_filter: "0"
+      net.ipv4.conf.default.rp_filter: "0"
+      net.ipv6.conf.all.disable_ipv6: "0"
+    volumes:
+      - ./deployment/generated/policy/tailscale.nft:/etc/cpm/rules.nft:ro
+      - ./deployment/generated/policy:/etc/cpm/policy:ro
+    networks:
+      transport: {gw_priority: 1}
+      icpm: {ipv4_address: 172.30.80.4}
+      pcpm: {ipv4_address: 172.30.81.4}
+
+  tailscale:
+    image: tailscale/tailscale@sha256:8c42c4574ab066384fcb72f69e086a2ff1dd3652eb6f56856cee34bcf0d2f680
+    restart: "no"
+    network_mode: service:tailscale-net
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_RAW]
+    security_opt: [no-new-privileges:true]
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    env_file:
+      - ./deployment/secrets/tailscale.env
+    environment:
+      TS_HOSTNAME: cpm-tailnet
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SOCKET: /var/run/tailscale/tailscaled.sock
+      TS_USERSPACE: "false"
+      TS_AUTH_ONCE: "true"
+      TS_ACCEPT_DNS: "false"
+      TS_EXTRA_ARGS: --accept-routes=false --netfilter-mode=off --ssh=false --advertise-exit-node=false
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+    depends_on:
+      tailscale-net: {condition: service_healthy}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          tailscale status --json | grep -q '"BackendState": "Running"'
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 15s
+
+  icpm-caddy-net:
+    <<: *guard
+    environment:
+      CERTIFICATE_EGRESS: "true"
+      TAILNET_GATEWAY: 172.30.80.4
+    depends_on:
+      tailscale: {condition: service_healthy}
+    volumes:
+      - ./deployment/generated/policy/icpm-caddy.nft:/etc/cpm/rules.nft:ro
+      - ./deployment/generated/policy:/etc/cpm/policy:ro
+    networks:
+      icpm: {ipv4_address: 172.30.80.2}
+
+  icpm-web-net:
+    <<: *guard
+    environment:
+      TAILNET_GATEWAY: 172.30.80.4
+    depends_on:
+      tailscale: {condition: service_healthy}
+    extra_hosts:
+      - "caddy=172.30.80.2"
+      - "${SSO_HOST:?Set SSO_HOST}=${PUBLIC_BIND_IP:?Set PUBLIC_BIND_IP}"
+    volumes:
+      - ./deployment/generated/policy/icpm-web.nft:/etc/cpm/rules.nft:ro
+      - ./deployment/generated/policy:/etc/cpm/policy:ro
+    networks:
+      icpm: {ipv4_address: 172.30.80.3}
+
+  icpm-caddy:
+    <<: *app
+    build:
+      context: ./apps/caddy-proxy-manager
+      dockerfile: docker/caddy/Dockerfile
+    image: ${CPM_CADDY_IMAGE:-cpm-caddy:preview}
+    network_mode: service:icpm-caddy-net
+    depends_on:
+      icpm-caddy-net: {condition: service_healthy}
+    volumes:
+      - icpm-caddy-data:/data
+      - icpm-caddy-config:/config
+      - icpm-logs:/logs
+      - icpm-geoip:/usr/share/GeoIP:ro
+      - icpm-acme:/acme-ca:ro
+      - ./deployment/Caddyfile:/etc/caddy/Caddyfile:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "-O", "/dev/null", "http://localhost:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  icpm-web:
+    <<: *app
+    build:
+      context: ./apps/caddy-proxy-manager
+      dockerfile: docker/web/Dockerfile
+    image: ${CPM_WEB_IMAGE:-cpm-web:preview}
+    network_mode: service:icpm-web-net
+    env_file:
+      - ./config/common/web.env
+      - ./config/icpm/web.env
+      - ./deployment/secrets/icpm.env
+    environment:
+      <<: *web-env
+      ANUBIS_PROTECTED_DOMAIN: ""
+      AUTH_ALLOW_OAUTH_REGISTRATION: "true"
+      MAINTENANCE_MODE: ${MAINTENANCE_MODE:-0}
+      CADDY_API_URL: http://caddy:2019
+      OAUTH_ISSUER: https://${SSO_HOST:?Set SSO_HOST}/application/o/icpm/
+      BASE_URL: ${ICPM_BASE_URL:-http://cpm-tailnet:3000}
+      NEXTAUTH_URL: ${ICPM_BASE_URL:-http://cpm-tailnet:3000}
+    group_add: ["10000"]
+    depends_on:
+      icpm-web-net: {condition: service_healthy}
+      icpm-caddy: {condition: service_healthy}
+      icpm-clickhouse: {condition: service_healthy, required: false}
+    volumes:
+      - icpm-manager-data:/app/data
+      - ./deployment/runtime:/run/cpm-observations:ro
+      - icpm-logs:/logs
+      - icpm-geoip:/usr/share/GeoIP:ro
+      - icpm-acme:/acme-ca
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+
+  pcpm-caddy-net:
+    <<: *guard
+    environment:
+      TAILNET_GATEWAY: 172.30.81.4
+    depends_on:
+      tailscale: {condition: service_healthy}
+    ports:
+      - "${PUBLIC_BIND_IP:?Set PUBLIC_BIND_IP}:80:80/tcp"
+      - "${PUBLIC_BIND_IP:?Set PUBLIC_BIND_IP}:443:443/tcp"
+    volumes:
+      - ./deployment/generated/policy/pcpm-caddy.nft:/etc/cpm/rules.nft:ro
+      - ./deployment/generated/policy:/etc/cpm/policy:ro
+    networks:
+      pcpm: {ipv4_address: 172.30.81.2}
+
+  pcpm-web-net:
+    <<: *guard
+    environment:
+      TAILNET_GATEWAY: 172.30.81.4
+    depends_on:
+      tailscale: {condition: service_healthy}
+    extra_hosts:
+      - "caddy=172.30.81.2"
+      - "${SSO_HOST:?Set SSO_HOST}=172.30.81.2"
+    volumes:
+      - ./deployment/generated/policy/pcpm-web.nft:/etc/cpm/rules.nft:ro
+      - ./deployment/generated/policy:/etc/cpm/policy:ro
+    networks:
+      pcpm: {ipv4_address: 172.30.81.3}
+
+  pcpm-caddy:
+    <<: *app
+    build:
+      context: ./apps/caddy-proxy-manager
+      dockerfile: docker/caddy/Dockerfile
+    image: ${CPM_CADDY_IMAGE:-cpm-caddy:preview}
+    network_mode: service:pcpm-caddy-net
+    depends_on:
+      pcpm-caddy-net: {condition: service_healthy}
+    volumes:
+      - pcpm-caddy-data:/data
+      - pcpm-caddy-config:/config
+      - pcpm-logs:/logs
+      - pcpm-geoip:/usr/share/GeoIP:ro
+      - pcpm-acme:/acme-ca:ro
+      - ./deployment/Caddyfile:/etc/caddy/Caddyfile:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "-O", "/dev/null", "http://localhost:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  pcpm-authentik-relay:
+    <<: *app
+    image: ${CPM_CADDY_IMAGE:-cpm-caddy:preview}
+    network_mode: service:pcpm-caddy-net
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      XDG_CONFIG_HOME: /tmp/config
+      XDG_DATA_HOME: /tmp/data
+    command: ["caddy", "run", "--config", "/etc/caddy/authentik-outpost.Caddyfile", "--adapter", "caddyfile"]
+    volumes:
+      - ./deployment/generated/authentik-outpost.Caddyfile:/etc/caddy/authentik-outpost.Caddyfile:ro
+    depends_on:
+      pcpm-caddy-net: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:8927/outpost.goauthentik.io/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  pcpm-anubis:
+    <<: *app
+    # Anubis v1.27.0, immutable release image.
+    image: ghcr.io/techarohq/anubis@sha256:8828275668b7bc675679f100970f9714f731388fbbf66ae94de8aca952e3fc4a
+    network_mode: service:pcpm-caddy-net
+    read_only: true
+    tmpfs: [/tmp]
+    env_file:
+      - ./deployment/secrets/anubis.env
+    environment:
+      BIND: 127.0.0.1:8923
+      TARGET: http://127.0.0.1:8924
+      METRICS_BIND: ":8925"
+      POLICY_FNAME: /etc/anubis/botPolicies.yaml
+      COOKIE_SECURE: "true"
+      COOKIE_PARTITIONED: "false"
+      COOKIE_EXPIRATION_TIME: 24h
+      REDIRECT_DOMAINS: "*.${ANUBIS_PROTECTED_DOMAIN:?Set ANUBIS_PROTECTED_DOMAIN}"
+      OG_PASSTHROUGH: "false"
+    volumes:
+      - ./deployment/generated/anubis/botPolicies.yaml:/etc/anubis/botPolicies.yaml:ro
+    depends_on:
+      pcpm-caddy-net: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "/ko-app/anubis", "--healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  pcpm-feedback:
+    <<: *app
+    image: ${CPM_WEB_IMAGE:-cpm-web:preview}
+    network_mode: service:pcpm-caddy-net
+    entrypoint: ["bun", "/feedback/server.ts"]
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      ERROR_FEEDBACK_PATH: /app/feedback/error-feedback.db
+    volumes:
+      - pcpm-feedback-data:/app/feedback
+      - ./deployment/error-feedback/server.ts:/feedback/server.ts:ro
+      - ./apps/caddy-proxy-manager/src/lib/error-feedback.ts:/feedback/error-feedback.ts:ro
+      - ./apps/caddy-proxy-manager/src/lib/error-feedback-handler.ts:/feedback/error-feedback-handler.ts:ro
+    depends_on:
+      pcpm-caddy-net: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:8930/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  pcpm-web:
+    <<: *app
+    build:
+      context: ./apps/caddy-proxy-manager
+      dockerfile: docker/web/Dockerfile
+    image: ${CPM_WEB_IMAGE:-cpm-web:preview}
+    network_mode: service:pcpm-web-net
+    env_file:
+      - ./config/common/web.env
+      - ./config/pcpm/web.env
+      - ./deployment/secrets/pcpm.env
+    environment:
+      <<: *web-env
+      MAINTENANCE_MODE: ${MAINTENANCE_MODE:-0}
+      AUTH_ALLOW_OAUTH_REGISTRATION: "true"
+      ANUBIS_PROTECTED_DOMAIN: ${ANUBIS_PROTECTED_DOMAIN:?Set ANUBIS_PROTECTED_DOMAIN}
+      ERROR_FEEDBACK_PATH: /app/feedback/error-feedback.db
+      CADDY_API_URL: http://caddy:2019
+      OAUTH_ISSUER: https://${SSO_HOST:?Set SSO_HOST}/application/o/pcpm/
+      BASE_URL: ${PCPM_BASE_URL:-http://cpm-tailnet:3001}
+      NEXTAUTH_URL: ${PCPM_BASE_URL:-http://cpm-tailnet:3001}
+    group_add: ["10000"]
+    depends_on:
+      pcpm-web-net: {condition: service_healthy}
+      pcpm-caddy: {condition: service_healthy}
+      pcpm-authentik-relay: {condition: service_healthy}
+      pcpm-anubis: {condition: service_healthy}
+      pcpm-feedback: {condition: service_healthy}
+      pcpm-clickhouse: {condition: service_healthy, required: false}
+    volumes:
+      - pcpm-manager-data:/app/data
+      - pcpm-feedback-data:/app/feedback
+      - ./deployment/runtime:/run/cpm-observations:ro
+      - pcpm-logs:/logs
+      - pcpm-geoip:/usr/share/GeoIP:ro
+      - pcpm-acme:/acme-ca
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+
+  icpm-clickhouse:
+    <<: *app
+    image: clickhouse/clickhouse-server@sha256:8f1dd1ec7213410276c8e9aee11b25b458fe9d53eee13ad8cfdf7c79e36aad17
+    profiles: [clickhouse]
+    user: "101:101"
+    network_mode: service:icpm-web-net
+    environment:
+      CLICKHOUSE_DB: analytics
+      CLICKHOUSE_USER: cpm
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    depends_on:
+      icpm-web-net: {condition: service_healthy}
+    volumes:
+      - icpm-clickhouse-data:/var/lib/clickhouse
+      - icpm-clickhouse-logs:/var/log/clickhouse-server
+      - ./apps/caddy-proxy-manager/docker/clickhouse/config.d/low-disk-write.xml:/etc/clickhouse-server/config.d/low-disk-write.xml:ro
+      - ./deployment/clickhouse-local.xml:/etc/clickhouse-server/config.d/zz-local.xml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --host 127.0.0.1 --user cpm --password \"$$CLICKHOUSE_PASSWORD\" --query \"SELECT 1\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    ulimits:
+      nofile: {soft: 262144, hard: 262144}
+
+  pcpm-clickhouse:
+    <<: *app
+    image: clickhouse/clickhouse-server@sha256:8f1dd1ec7213410276c8e9aee11b25b458fe9d53eee13ad8cfdf7c79e36aad17
+    profiles: [clickhouse]
+    user: "101:101"
+    network_mode: service:pcpm-web-net
+    environment:
+      CLICKHOUSE_DB: analytics
+      CLICKHOUSE_USER: cpm
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    depends_on:
+      pcpm-web-net: {condition: service_healthy}
+    volumes:
+      - pcpm-clickhouse-data:/var/lib/clickhouse
+      - pcpm-clickhouse-logs:/var/log/clickhouse-server
+      - ./apps/caddy-proxy-manager/docker/clickhouse/config.d/low-disk-write.xml:/etc/clickhouse-server/config.d/low-disk-write.xml:ro
+      - ./deployment/clickhouse-local.xml:/etc/clickhouse-server/config.d/zz-local.xml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --host 127.0.0.1 --user cpm --password \"$$CLICKHOUSE_PASSWORD\" --query \"SELECT 1\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    ulimits:
+      nofile: {soft: 262144, hard: 262144}
+
+  icpm-geoipupdate:
+    <<: *app
+    image: ghcr.io/maxmind/geoipupdate@sha256:51e70dd6f16cd3e4d845ac02d09940b10772a75b9d741427d235a78570923c1d
+    profiles: [geoipupdate]
+    read_only: true
+    tmpfs: [/tmp]
+    env_file:
+      - ./deployment/secrets/icpm-geoip.env
+    environment:
+      GEOIPUPDATE_EDITION_IDS: GeoLite2-Country GeoLite2-ASN
+      GEOIPUPDATE_FREQUENCY: "72"
+    networks: [geoip-egress]
+    volumes:
+      - icpm-geoip:/usr/share/GeoIP
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /usr/share/GeoIP/GeoLite2-Country.mmdb && test -s /usr/share/GeoIP/GeoLite2-ASN.mmdb"]
+      interval: 10s
+      timeout: 3s
+      retries: 18
+      start_period: 30s
+
+  pcpm-geoipupdate:
+    <<: *app
+    image: ghcr.io/maxmind/geoipupdate@sha256:51e70dd6f16cd3e4d845ac02d09940b10772a75b9d741427d235a78570923c1d
+    profiles: [geoipupdate]
+    read_only: true
+    tmpfs: [/tmp]
+    env_file:
+      - ./deployment/secrets/pcpm-geoip.env
+    environment:
+      GEOIPUPDATE_EDITION_IDS: GeoLite2-Country GeoLite2-ASN
+      GEOIPUPDATE_FREQUENCY: "72"
+    networks: [geoip-egress]
+    volumes:
+      - pcpm-geoip:/usr/share/GeoIP
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /usr/share/GeoIP/GeoLite2-Country.mmdb && test -s /usr/share/GeoIP/GeoLite2-ASN.mmdb"]
+      interval: 10s
+      timeout: 3s
+      retries: 18
+      start_period: 30s
+
+networks:
+  geoip-egress:
+    driver: bridge
+    enable_ipv6: false
+  transport:
+    driver: bridge
+    enable_ipv6: false
+  icpm:
+    driver: bridge
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: br-cpm-internal
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
+    ipam:
+      config: [{subnet: 172.30.80.0/24}]
+  pcpm:
+    driver: bridge
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: br-cpm-public
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
+    ipam:
+      config: [{subnet: 172.30.81.0/24}]
+
+volumes:
+  tailscale-state:
+  icpm-caddy-data:
+  icpm-caddy-config:
+  icpm-logs:
+  icpm-geoip:
+  icpm-acme:
+  icpm-manager-data:
+  pcpm-caddy-data:
+  pcpm-caddy-config:
+  pcpm-logs:
+  pcpm-geoip:
+  pcpm-acme:
+  pcpm-manager-data:
+  pcpm-feedback-data:
+  icpm-clickhouse-data:
+  icpm-clickhouse-logs:
+  pcpm-clickhouse-data:
+  pcpm-clickhouse-logs:

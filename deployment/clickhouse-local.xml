@@ -1,0 +1,4 @@
+<clickhouse>
+    <listen_host replace="replace">127.0.0.1</listen_host>
+    <max_server_memory_usage>805306368</max_server_memory_usage>
+</clickhouse>

@@ -1,0 +1,7 @@
+# Approved backend IPv4 + TCP port pairs; empty means no outbound backends.
+# ICPM also enforces destination 100.64.0.0/10.
+# Example syntax inside the set: elements = { 100.101.102.104 . 8080 }
+# Use literal IPs in CPM. DNS and automatic ACME are intentionally blocked.
+set upstreams4 {
+    type ipv4_addr . inet_service
+}

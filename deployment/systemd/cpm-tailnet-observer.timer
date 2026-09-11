@@ -1,0 +1,11 @@
+[Unit]
+Description=Sample CPM Tailscale endpoints every ten seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=10s
+AccuracySec=1s
+Unit=cpm-tailnet-observer.service
+
+[Install]
+WantedBy=timers.target
