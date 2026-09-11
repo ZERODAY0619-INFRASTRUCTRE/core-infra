@@ -1,23 +1,26 @@
 # 로컬 환경설정과 공개 범위
 
-루트 `.env`는 서버 주소, Compose 설정, ClickHouse 비밀번호를 보관한다.
-`deployment/secrets/*.env`는 서비스별 자격증명을 보관한다. 두 종류 모두 Git에서 제외된다.
-`config/*/web.env`에는 공개 가능한 인스턴스 이름과 고정 컨테이너 내부 연결만 남긴다.
-DB, 인증서, 키, 로그, 관측 결과, 생성된 정책, 릴리스 묶음도 추적하지 않는다.
+모든 서비스 설정은 배포 저장소 루트의 `.env` 하나에 입력한다.
+Git에는 `.env.example`만 올린다. 앱 submodule에 별도의 `.env`를 만들 필요가 없다.
+Compose가 서비스별 변수만 전달하므로 내부·외부 앱의 자격증명은 서로 섞이지 않는다.
 
 ```sh
 # 새 설치에서만 실행: 기존 .env를 덮어쓰지 않는다.
 umask 077
 cp -n .env.example .env
-for example in deployment/secrets/*.env.example; do
-  cp -n "$example" "${example%.example}"
-done
-chmod 600 .env deployment/secrets/*.env
-# 편집기로 실제 값 입력 후:
+chmod 600 .env
+# 편집기로 주소와 비밀값 입력 후:
 python3 scripts/render-config.py
 ./scripts/validate.sh
 ./scripts/compose.sh config --quiet
 ```
+
+`ICPM_SESSION_SECRET`, `ICPM_ADMIN_PASSWORD`, `ICPM_OAUTH_CLIENT_*`는 내부 앱,
+`PCPM_SESSION_SECRET`, `PCPM_ADMIN_PASSWORD`, `PCPM_OAUTH_CLIENT_*`는 외부 앱에만 전달된다.
+두 SESSION_SECRET은 서로 다른 32자 이상 값을 사용한다. 기존 배포 이전 시 기존 값을 보존한다.
+Tailscale은 `TS_AUTHKEY`, Anubis는 `ANUBIS_PRIVATE_KEY_HEX`에 입력한다.
+GeoIP는 `ICPM_GEOIPUPDATE_*`, `PCPM_GEOIPUPDATE_*`를 사용한다.
+`CLICKHOUSE_PASSWORD`는 두 ClickHouse와 각 웹에서 공유한다.
 
 | 설정 | 용도 |
 | --- | --- |
@@ -40,7 +43,7 @@ Compose는 마운트 파일의 내용을 치환하지 않는다. `scripts/render
 `config/templates/`를 검증된 환경값으로 렌더링하여 `deployment/generated/`에 기록한다.
 생성물은 직접 편집하지 않는다. `scripts/compose.sh`는 생성 후 같은 `.env`로 Compose를 실행한다.
 설정 변경 시 영향을 받는 컨테이너를 재생성해야 변경된 bind mount가 적용된다.
-관측기의 `deployment/runtime/` 디렉터리와 서비스별 비밀 파일도 이전 문서에 따라 준비한다.
+관측기의 `deployment/runtime/` 디렉터리도 이전 문서에 따라 준비한다.
 
 `config`를 값 출력 옵션으로 실행하면 비밀번호가 표시될 수 있다. 공유할 검증 결과에는
 `config --quiet`와 `scripts/validate.sh`를 사용한다. 비밀값을 빌드 인자나 Dockerfile에 넣지 않는다.

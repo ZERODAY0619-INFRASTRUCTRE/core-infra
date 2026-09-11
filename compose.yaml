@@ -65,9 +65,8 @@ services:
     security_opt: [no-new-privileges:true]
     devices:
       - /dev/net/tun:/dev/net/tun
-    env_file:
-      - ./deployment/secrets/tailscale.env
     environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
       TS_HOSTNAME: cpm-tailnet
       TS_STATE_DIR: /var/lib/tailscale
       TS_SOCKET: /var/run/tailscale/tailscaled.sock
@@ -147,11 +146,14 @@ services:
       dockerfile: docker/web/Dockerfile
     image: ${CPM_WEB_IMAGE:-cpm-web:preview}
     network_mode: service:icpm-web-net
-    env_file:
-      - ./config/common/web.env
-      - ./config/icpm/web.env
-      - ./deployment/secrets/icpm.env
     environment:
+      SESSION_SECRET: ${ICPM_SESSION_SECRET:-}
+      ADMIN_USERNAME: ${ICPM_ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ICPM_ADMIN_PASSWORD:-}
+      OAUTH_CLIENT_ID: ${ICPM_OAUTH_CLIENT_ID:-}
+      OAUTH_CLIENT_SECRET: ${ICPM_OAUTH_CLIENT_SECRET:-}
+      CPM_EDGE_LABEL: Internal proxy
+      CPM_FEEDBACK_UPSTREAM: 172.30.80.3:3000
       <<: *web-env
       ANUBIS_PROTECTED_DOMAIN: ""
       AUTH_ALLOW_OAUTH_REGISTRATION: "true"
@@ -259,9 +261,8 @@ services:
     network_mode: service:pcpm-caddy-net
     read_only: true
     tmpfs: [/tmp]
-    env_file:
-      - ./deployment/secrets/anubis.env
     environment:
+      ED25519_PRIVATE_KEY_HEX: ${ANUBIS_PRIVATE_KEY_HEX:-}
       BIND: 127.0.0.1:8923
       TARGET: http://127.0.0.1:8924
       METRICS_BIND: ":8925"
@@ -312,11 +313,14 @@ services:
       dockerfile: docker/web/Dockerfile
     image: ${CPM_WEB_IMAGE:-cpm-web:preview}
     network_mode: service:pcpm-web-net
-    env_file:
-      - ./config/common/web.env
-      - ./config/pcpm/web.env
-      - ./deployment/secrets/pcpm.env
     environment:
+      SESSION_SECRET: ${PCPM_SESSION_SECRET:-}
+      ADMIN_USERNAME: ${PCPM_ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${PCPM_ADMIN_PASSWORD:-}
+      OAUTH_CLIENT_ID: ${PCPM_OAUTH_CLIENT_ID:-}
+      OAUTH_CLIENT_SECRET: ${PCPM_OAUTH_CLIENT_SECRET:-}
+      CPM_EDGE_LABEL: Public proxy
+      CPM_FEEDBACK_UPSTREAM: 127.0.0.1:8930
       <<: *web-env
       MAINTENANCE_MODE: ${MAINTENANCE_MODE:-0}
       AUTH_ALLOW_OAUTH_REGISTRATION: "true"
@@ -408,9 +412,9 @@ services:
     profiles: [geoipupdate]
     read_only: true
     tmpfs: [/tmp]
-    env_file:
-      - ./deployment/secrets/icpm-geoip.env
     environment:
+      GEOIPUPDATE_ACCOUNT_ID: ${ICPM_GEOIPUPDATE_ACCOUNT_ID:-}
+      GEOIPUPDATE_LICENSE_KEY: ${ICPM_GEOIPUPDATE_LICENSE_KEY:-}
       GEOIPUPDATE_EDITION_IDS: GeoLite2-Country GeoLite2-ASN
       GEOIPUPDATE_FREQUENCY: "72"
     networks: [geoip-egress]
@@ -429,9 +433,9 @@ services:
     profiles: [geoipupdate]
     read_only: true
     tmpfs: [/tmp]
-    env_file:
-      - ./deployment/secrets/pcpm-geoip.env
     environment:
+      GEOIPUPDATE_ACCOUNT_ID: ${PCPM_GEOIPUPDATE_ACCOUNT_ID:-}
+      GEOIPUPDATE_LICENSE_KEY: ${PCPM_GEOIPUPDATE_LICENSE_KEY:-}
       GEOIPUPDATE_EDITION_IDS: GeoLite2-Country GeoLite2-ASN
       GEOIPUPDATE_FREQUENCY: "72"
     networks: [geoip-egress]

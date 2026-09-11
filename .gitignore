@@ -2,7 +2,6 @@
 /.env.*
 !/.env.example
 /deployment/secrets/*
-!/deployment/secrets/*.example
 /deployment/runtime/
 /deployment/backups/
 /deployment/trust/
@@ -20,9 +19,6 @@ __pycache__/
 .env.*
 !.env.example
 *.env
-!config/common/web.env
-!config/icpm/web.env
-!config/pcpm/web.env
 *.bundle
 *.tar
 *.tar.gz

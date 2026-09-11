@@ -11,7 +11,7 @@ KEYS = ('PUBLIC_BIND_IP', 'HOST_TAILNET_IP', 'SSO_HOST', 'ANUBIS_PROTECTED_DOMAI
 
 def settings(env_file, environ=None):
     values = {}
-    # Parse only site keys. Credentials remain exclusively in Compose's env files.
+    # Parse only site keys. Compose reads credentials from the root .env.
     for line in Path(env_file).read_text().splitlines():
         key, sep, value = line.strip().partition('=')
         if sep and key.strip() in KEYS:

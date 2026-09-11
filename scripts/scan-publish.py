@@ -65,7 +65,7 @@ def main():
                 parts = Path(name).parts
                 if any(p in parts for p in ('generated', 'runtime', 'backups', 'artifacts')) or name.endswith(('.bundle', '.db', '.key', '.pem')):
                     issues.add(prefix + ':forbidden-path:' + name)
-                if (name.endswith('.env') and name not in ('config/common/web.env', 'config/icpm/web.env', 'config/pcpm/web.env')) or (Path(name).name.startswith('.env') and Path(name).name != '.env.example') or (name.startswith('deployment/secrets/') and not name.endswith('.example')):
+                if (name.endswith('.env')) or (Path(name).name.startswith('.env') and Path(name).name != '.env.example') or (name.startswith('deployment/secrets/') and not name.endswith('.example')):
                     issues.add(prefix + ':forbidden-path:' + name)
         objects = git(repo, 'rev-list', '--objects', '--all').splitlines()
         with subprocess.Popen(['git', 'cat-file', '--batch'], cwd=repo, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as proc:

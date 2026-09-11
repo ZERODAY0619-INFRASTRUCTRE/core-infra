@@ -12,22 +12,23 @@ PCPM의 원본 f1257934를 기준으로 통합한 뒤 최신 정식 릴리스 v1
 
 ## 설정 준비
 
-1. `.env.example`을 `.env`로 복사하고 [환경설정](ENV.ko.md)에 따라 도메인/IP와 실제 값을 준비한다.
-   현재 준비본의 `.env`에는 기존 서버의 주소만 보존되어 있다. 비밀번호는 별도로 옮겨야 한다.
-2. `deployment/secrets/*.env.example`을 해당 `.env`로 복사한다. 파일 권한은 0600으로 한다.
-3. 기존 내부 앱 `.env` 다음 기존 `deployment/secrets/icpm.env` 순서의 최종 환경변수를
-   새 `deployment/secrets/icpm.env`에 옮긴다. PCPM도 같은 순서로 옮긴다.
-   중복 키는 기존처럼 뒤 파일이 우선한다. 단순 연결로 중복 값을 방치하지 않는다.
-4. Tailscale, Anubis, GeoIP 비밀 파일과 필요한 trust 파일을 안전한 별도 경로로 옮긴다.
-   실제 비밀값은 이 작업 준비본에 복사하지 않았다. 기존 root `.env`의 프로파일과
-   ClickHouse 비밀번호, BASE_URL도 보존한다. SESSION_SECRET을 새로 생성하면 기존 세션이 무효화된다.
+1. 루트 `.env.example`을 `.env`로 복사하고 [환경설정](ENV.ko.md)을 따른다.
+   현재 준비본의 `.env`에는 기존 서버 주소만 보존되어 있고 자격증명은 비어 있다.
+2. 기존 내부 앱 `.env` 다음 기존 `deployment/secrets/icpm.env` 순서의 최종 값을 읽어
+   `SESSION_SECRET` → `ICPM_SESSION_SECRET`, `ADMIN_USERNAME` → `ICPM_ADMIN_USERNAME`,
+   `ADMIN_PASSWORD` → `ICPM_ADMIN_PASSWORD`, `OAUTH_CLIENT_ID` → `ICPM_OAUTH_CLIENT_ID`,
+   `OAUTH_CLIENT_SECRET` → `ICPM_OAUTH_CLIENT_SECRET`으로 루트 `.env`에 입력한다.
+   PCPM도 같은 순서로 최종 값을 읽고 `PCPM_` 접두사를 붙인다.
+3. 기존 Tailscale 키는 `TS_AUTHKEY`, Anubis의 `ED25519_PRIVATE_KEY_HEX`는
+   `ANUBIS_PRIVATE_KEY_HEX`로 입력한다. GeoIP 계정/키에는 `ICPM_` 또는 `PCPM_` 접두사를 붙인다.
+4. 기존 루트의 프로파일, ClickHouse 비밀번호, BASE_URL과 SESSION_SECRET을 보존한다.
+   새 배포에서는 서비스별 env 파일을 읽지 않는다. 모든 설정을 루트 `.env` 하나에 모으고 권한을 0600으로 한다.
 5. `deployment/runtime` 디렉터리를 만들고 기존 관측기 사용자의 쓰기 권한을 보존한다.
-   systemd service의 `/opt/infra`는 최종 설치 경로에 맞춰 변경한다. 현재 준비본에서 실행하지 않는다.
+   systemd service의 `/opt/infra`는 최종 설치 경로에 맞춰 변경한다.
 
-Compose의 `environment`는 env_file보다 우선한다. 인스턴스 식별 설정은 `config/*/web.env`,
-BASE_URL·공통 런타임 설정과 ICPM의 Anubis 비활성화는 compose.yaml에 명시한다.
-SSO/Anubis 도메인과 backend 주소는 루트 `.env`에서 설정한다.
-`python3 scripts/render-config.py`가 방화벽·Caddy·Anubis 템플릿에 같은 값을 적용한다.
+Compose의 `environment`는 `.env`의 접두사 변수를 각 서비스가 기대하는 원래 이름으로 전달한다.
+서버별 값과 비밀값은 `.env`에서만 바꾸고, 고정 내부 연결과 서비스 분리는 Compose로 관리한다.
+`python3 scripts/render-config.py`가 방화벽·Caddy·Anubis 템플릿에 같은 환경값을 적용한다.
 Compose 실행은 `./scripts/compose.sh`를 사용한다.
 
 ## 전환 시점

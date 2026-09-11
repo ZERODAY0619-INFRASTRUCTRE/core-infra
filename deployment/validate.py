@@ -87,7 +87,7 @@ def main():
             assert "--netfilter-mode=off" in service["environment"]["TS_EXTRA_ARGS"]
             assert "--advertise-exit-node=false" in service["environment"]["TS_EXTRA_ARGS"]
             if not service["environment"].get("TS_AUTHKEY"):
-                print("NOTE: Fill deployment/secrets/tailscale.env before first start.")
+                print("NOTE: Fill TS_AUTHKEY in the root .env before first start.")
         elif name == "pcpm-feedback":
             assert not service.get("ports") and not service.get("networks")
             assert not service.get("cap_add")

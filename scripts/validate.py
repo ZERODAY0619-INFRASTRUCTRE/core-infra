@@ -11,7 +11,7 @@ def compose():
     return json.loads(subprocess.check_output([
         "docker", "compose", "--env-file", str(ROOT / ".env.example"), "-f", str(ROOT / "compose.yaml"),
         "--profile", "*", "config", "--no-env-resolution", "--format", "json"
-    ], cwd=ROOT, text=True, env={k:v for k,v in os.environ.items() if k not in KEYS and k not in ("COMPOSE_PROJECT_NAME", "COMPOSE_PROFILES", "CPM_WEB_IMAGE", "CPM_CADDY_IMAGE", "ICPM_BASE_URL", "PCPM_BASE_URL", "CLICKHOUSE_PASSWORD", "MAINTENANCE_MODE")}))
+    ], cwd=ROOT, text=True, env={k:v for k,v in os.environ.items() if k not in {line.split("=", 1)[0] for line in (ROOT / ".env.example").read_text().splitlines() if "=" in line and not line.startswith("#")}}))
 
 def contract(config):
     keys = ("network_mode", "networks", "ports", "cap_add", "cap_drop", "security_opt",
@@ -43,15 +43,8 @@ def main():
         assert internal["image"] == public["image"], "Instances must use one image"
         assert internal["build"] == public["build"], "Instances must use one build"
         assert pathlib.Path(internal["build"]["context"]) == app
-    envs = {}
-    for instance in ("icpm", "pcpm"):
-        env = {}
-        for filename in ("config/common/web.env", f"config/{instance}/web.env"):
-            for line in (ROOT / filename).read_text().splitlines():
-                if line and not line.startswith("#"):
-                    k, v = line.split("=", 1); env[k] = v
-        env.update(s[instance + "-web"]["environment"])
-        envs[instance] = env
+    envs = {instance: s[instance + "-web"]["environment"] for instance in ("icpm", "pcpm")}
+    assert all(not service.get("env_file") for service in s.values()), "Use only the root .env"
     assert not envs["icpm"].get("ANUBIS_PROTECTED_DOMAIN")
     assert envs["pcpm"]["ANUBIS_PROTECTED_DOMAIN"] == site["ANUBIS_PROTECTED_DOMAIN"]
     for service in s.values():

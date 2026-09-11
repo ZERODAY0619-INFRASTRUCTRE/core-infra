@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -56,6 +58,48 @@ class SiteConfigTests(unittest.TestCase):
             self.assertEqual(inode, caddy.stat().st_ino)
             render({**self.values, 'AUTHENTIK_TLS_INSECURE': 'true'}, output)
             self.assertIn('tls_insecure_skip_verify', caddy.read_text())
+
+class SingleEnvTests(unittest.TestCase):
+    def test_compose_maps_credentials_without_cross_instance_leaks(self):
+        pairs = {}
+        for prefix in ('ICPM', 'PCPM'):
+            for key in ('SESSION_SECRET', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'OAUTH_CLIENT_ID', 'OAUTH_CLIENT_SECRET', 'GEOIPUPDATE_ACCOUNT_ID', 'GEOIPUPDATE_LICENSE_KEY'):
+                pairs[prefix + '_' + key] = prefix.lower() + '-' + key.lower() + '-fixture-!hash#literal'
+        pairs.update(TS_AUTHKEY='tailnet-fixture', ANUBIS_PRIVATE_KEY_HEX='anubis-fixture')
+        example = (ROOT / '.env.example').read_text()
+        keys = {line.split('=', 1)[0] for line in example.splitlines() if '=' in line and not line.startswith('#')}
+        self.assertTrue(set(pairs) <= keys)
+        with tempfile.TemporaryDirectory() as temp:
+            env_file = Path(temp) / '.env'
+            lines = []
+            for line in example.splitlines():
+                key = line.split('=', 1)[0]
+                lines.append(key + "='" + pairs[key] + "'" if key in pairs else line)
+            env_file.write_text('\n'.join(lines) + '\n')
+            result = subprocess.run(['docker', 'compose', '--env-file', str(env_file), '-f', str(ROOT / 'compose.yaml'), '--profile', '*', 'config', '--format', 'json'], cwd=ROOT, env={k:v for k,v in os.environ.items() if k not in keys}, check=True, capture_output=True, text=True)
+            services = json.loads(result.stdout)['services']
+        for name, service in services.items():
+            self.assertNotIn('env_file', service)
+            env = service.get('environment', {})
+            for prefix in ('ICPM', 'PCPM'):
+                expected_service = prefix.lower()
+                for key in ('SESSION_SECRET', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'OAUTH_CLIENT_ID', 'OAUTH_CLIENT_SECRET'):
+                    value = pairs[prefix + '_' + key]
+                    if name == expected_service + '-web':
+                        self.assertEqual(env[key], value)
+                    else:
+                        self.assertNotIn(value, env.values())
+                for key in ('GEOIPUPDATE_ACCOUNT_ID', 'GEOIPUPDATE_LICENSE_KEY'):
+                    value = pairs[prefix + '_' + key]
+                    if name == expected_service + '-geoipupdate':
+                        self.assertEqual(env[key], value)
+                    else:
+                        self.assertNotIn(value, env.values())
+            for var, key, target in [('TS_AUTHKEY', 'TS_AUTHKEY', 'tailscale'), ('ANUBIS_PRIVATE_KEY_HEX', 'ED25519_PRIVATE_KEY_HEX', 'pcpm-anubis')]:
+                if name == target:
+                    self.assertEqual(env[key], pairs[var])
+                else:
+                    self.assertNotIn(pairs[var], env.values())
 
 class PublishScanTests(unittest.TestCase):
     def test_removed_secret_remains_detected_in_history(self):
