@@ -1,17 +1,104 @@
 name: Infrastructure checks
-on: [push, pull_request]
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: infra-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    name: Patch and infrastructure validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: python3 scripts/app-source.py prepare
-      - run: ./scripts/validate.sh
-      - run: python3 -m unittest discover -s deployment -p 'test_observe_tailnet.py'
-      - run: python3 -m unittest discover -s scripts -p 'test_site_config.py'
-      - run: python3 scripts/scan-publish.py
-      - run: python3 -m unittest discover -s scripts -p 'test_app_source.py'
+          persist-credentials: false
+      - name: Prepare and verify upstream patch series
+        run: python3 scripts/app-source.py prepare
+      - name: Validate Compose and deployment contracts
+        run: ./scripts/validate.sh
+      - name: Test infrastructure helpers
+        run: |
+          python3 -m unittest discover -s deployment -p 'test_observe_tailnet.py'
+          python3 -m unittest discover -s scripts -p 'test_site_config.py'
+          python3 -m unittest discover -s scripts -p 'test_app_source.py'
+      - name: Scan publishable files and Git history for credentials
+        run: python3 scripts/scan-publish.py
+
+  app-tests:
+    name: Application tests and type checking
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/caddy-proxy-manager
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare application
+        working-directory: .
+        run: python3 scripts/app-source.py prepare
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Run upstream tests
+        run: bun run test --maxWorkers=1
+      - name: Run customization tests
+        run: sh scripts/test-custom.sh
+      - name: Check TypeScript
+        run: bun run typecheck
+
+  build:
+    name: Build and smoke test (${{ matrix.component }})
+    needs: app-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [web, caddy, netguard]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build production image
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          if [ "$COMPONENT" = netguard ]; then
+            docker build --tag cpm-netguard:ci deployment/netguard
+          else
+            ./scripts/build.sh "$COMPONENT"
+          fi
+      - name: Smoke test image runtime
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          if [ "$COMPONENT" = netguard ]; then
+            docker run --rm --network none --entrypoint python3 cpm-netguard:ci --version
+            docker run --rm --network none --entrypoint nft cpm-netguard:ci --version
+          else
+            REV=$(python3 -c 'import json; print(json.load(open("patches/caddy-proxy-manager/upstream.json"))["patched_tree"][:12])')
+            if [ "$COMPONENT" = web ]; then
+              docker run --rm --network none --entrypoint bun "cpm-web:$REV" --version
+            else
+              docker run --rm --network none --entrypoint caddy "cpm-caddy:$REV" version
+              docker run --rm --network none --entrypoint caddy "cpm-caddy:$REV" list-modules
+            fi
+          fi
