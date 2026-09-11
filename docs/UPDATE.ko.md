@@ -1,61 +1,70 @@
-# 원본 업데이트와 릴리스
+# 원본과 패치 업데이트
 
-## 앱 업데이트
+`patches/caddy-proxy-manager/upstream.json`에 공식 원본 URL·커밋·버전,
+각 패치 SHA-256과 적용 후 Git 트리를 고정한다. `series` 순서대로 번호 패치를
+`git am`으로 적용하며 바이너리와 파일 추가·삭제도 포함한다. 기존 커스텀 앱 소스와 동일한 결과로 검증했다.
+라이선스 파일의 줄바꿈/공백은 원본 그대로 보존한다.
 
-Bun 1.4.2와 Node 24를 사용한다. 현재 Vitest 5와 better-sqlite3 13은 Node 20을 지원하지 않는다.
-
-앱 fork의 `custom/main`은 배포 커스텀 이력을 유지한다. 원본 갱신은 별도 브랜치에서 한다.
+## 커스텀 변경 저장
 
 ```sh
-cd ../caddy-proxy-manager
-git switch custom/main
-git fetch upstream
-git switch -c update/<version>
-git merge <reviewed-upstream-tag-or-commit>
-bun install --frozen-lockfile --ignore-scripts
-bun run test --maxWorkers=1
-sh scripts/test-custom.sh
-bun run typecheck
-DATABASE_URL=file:/tmp/cpm-build.db DATABASE_PATH=/tmp/cpm-build.db bun --bun run build
+python3 scripts/app-source.py prepare
+# apps/caddy-proxy-manager 아래 필요한 소스를 수정한다.
+git -C apps/caddy-proxy-manager add <수정한파일>
+git -C apps/caddy-proxy-manager commit
+# 제목: subsystem: imperative summary / 본문: 변경 이유와 동작
+python3 scripts/app-source.py export
+python3 scripts/app-source.py check
+python3 scripts/scan-publish.py
+git add patches/caddy-proxy-manager
+git commit -m "Update CPM custom patch"
 ```
 
-병합한 릴리스에 맞춰 앱 `package.json`의 version과 `CUSTOMIZATIONS.md`의 원본 기준을 갱신한다.
-충돌은 커스텀 기능의 의도를 보존해 해결한다. 인증/DB 마이그레이션/Caddy pin 변경은 별도 검토한다.
-테스트 후 앱 브랜치를 리뷰·병합·push하고, infra에서 그 커밋을 고정한다.
+생성 소스에는 패치별 로컬 커밋이 생긴다. 변경도 앱 디렉터리에서 기능별로 커밋한 뒤
+export한다. 기존 패치를 다듬을 때는 로컬 커밋을 수정하고 전체 시리즈를 다시 export한다. 앱 디렉터리의 수정만으로는 배포 저장소에
+저장되지 않으며 반드시 export해야 한다. 체크섬을 수동으로 맞추는 대신 export를 사용한다.
+준비된 소스의 변경은 자동으로 버리지 않는다. 다시 만들려면 `prepare --replace`를 사용하며,
+이전 소스는 Git 제외 경로인 `deployment/backups/`로 이동해 보존한다.
+
+## 원본 버전 올리기
 
 ```sh
-cd ../infra
-git -C apps/caddy-proxy-manager fetch origin
-./scripts/update-app.sh <approved-app-commit>
-./scripts/build.sh
-git diff --cached --submodule=log
-git commit -m "Update common CPM application"
+python3 scripts/app-source.py prepare
+./scripts/update-app.sh <검토한_공식_태그_또는_커밋>
 ```
 
-두 이미지 태그는 앱 커밋으로 생성되며, UI/OpenAPI 및 이미지 라벨에는 `1.11.2+tomori.<commit>` 형태의 버전을 기록한다.
-`./scripts/build.sh web` 또는 `caddy`로 한 구성 요소만 빌드할 수 있다.
-이 서버처럼 BuildKit bridge DNS가 동작하지 않는 환경은 `CPM_BUILD_NETWORK=host`를 빌드에만 지정한다.
-두 이미지 태그는 앱 커밋으로 생성된다. 빌드 스크립트 출력대로 `.env`의 이미지 태그를 갱신한다.
-빌드는 컨테이너를 재시작하지 않는다. 실제 전환 전 DB 백업과 변경된 DB 스키마의 호환성을 확인한다.
-이전 Git 커밋/이미지만 되돌려도 DB 마이그레이션은 되돌아가지 않는다. 필요하면 이전 DB 백업을 복원한다.
-
-## 오프라인 소스 릴리스
+도구는 `apps/cpm-update-*`라는 별도 작업 폴더에서 원본을 받고 기존 패치를 적용한다.
+충돌은 해당 폴더에 남겨 직접 해결한다. 기존 준비 소스와 패치는 그대로 보존된다.
+충돌 해결 후 `git add`와 `git am --continue`로 이어간다. 버전에 맞춘 추가 수정은
+앱 `package.json`과 커스텀 문서를 포함해 기능별로 커밋한다.
 
 ```sh
-./scripts/package-release.sh
+# PATH는 도구가 출력한 업데이트 작업 폴더다.
+git -C PATH add <검토한파일>
+git -C PATH commit
+python3 scripts/app-source.py export --source PATH --base <공식_전체_커밋_SHA> --version <버전>
+python3 scripts/app-source.py prepare --replace
+./scripts/validate.sh
 ```
 
-깨끗한 커밋 상태에서 `artifacts/infra-<commit>/`에 두 Git bundle, 통합 소스 tarball,
-커밋 메타데이터와 SHA256SUMS를 만든다. 빌드 이미지와 의존성은 별도 전달한다.
-예전 단일 Python 패치 설치기를 새 디렉터리에 적용하지 않는다.
-소스 tarball은 Git 메타데이터가 없는 열람/빌드용 export이며 Git 기반 검증/업데이트에는 bundle을 복원한다.
+앱 변경 검증에는 Bun 1.4.2와 Node 24를 사용한다. 앱 폴더에서 frozen lockfile 설치,
+`bun run test --maxWorkers=1`, `sh scripts/test-custom.sh`, `bun run typecheck`,
+임시 DB를 지정한 `bun --bun run build`를 수행한다. 인증·DB 마이그레이션·Caddy pin 변경은
+별도로 검토한다. 테스트 후 패치와 원본 lock 파일을 같은 배포 커밋으로 올린다.
+
+## 빌드와 릴리스
+
+`./scripts/build.sh`는 소스를 준비·검증하고 공통 web/caddy 이미지를 만든다.
+이미지 태그에는 적용 후 소스 트리의 앞 12자리를 사용한다. 출력된 태그를 `.env`에 입력한다.
+`CPM_BUILD_NETWORK=host`는 필요할 때 빌드에만 적용한다. 빌드는 운영 서비스를 재시작하지 않는다.
+
+`./scripts/package-release.sh`는 깨끗한 커밋에서 검사를 통과한 뒤 `artifacts/infra-<commit>/`에
+배포 Git bundle 하나, 패치 포함 source.tar.gz, 메타데이터와 SHA256SUMS를 만든다.
+앱 소스와 의존성·이미지는 포함하지 않는다. 복원 후 `app-source.py prepare`로 원본을 받는다.
+망이 없는 환경에서는 원본 커밋을 가진 로컬 Git 저장소를 `prepare --source /path/to/repo`로 지정한다.
 
 ```sh
-git clone caddy-proxy-manager.bundle caddy-proxy-manager
-git -C caddy-proxy-manager switch -c custom/main
-git -C caddy-proxy-manager remote add upstream https://github.com/fuomag9/caddy-proxy-manager.git
 git clone infra.bundle infra
-git -C infra switch -c main
-# 로컬 bundle 복원에만 file 전송을 명시적으로 허용한다.
-git -C infra -c protocol.file.allow=always submodule update --init
+cd infra
+python3 scripts/app-source.py prepare
 ```

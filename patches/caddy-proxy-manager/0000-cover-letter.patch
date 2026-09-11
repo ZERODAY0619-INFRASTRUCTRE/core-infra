@@ -1,0 +1,173 @@
+From deabbb607ba92cfc14f93eadbc1cec262245e422 Mon Sep 17 00:00:00 2001
+From: CPM Patch Builder <cpm-patch-builder@localhost>
+Date: Fri, 11 Sep 2026 06:53:16 +0000
+Subject: [PATCH 0/9] cpm: update deployment customizations
+
+Apply the numbered patches in series order to the pinned public
+upstream commit. This series preserves the shared ICPM/PCPM behavior.
+Review each patch and run the deployment and application checks before
+publishing. No review, testing or DCO trailers are synthesized.
+
+zeroday0619 (9):
+  oauth: synchronize trusted role claims on account updates
+  access: retain the last account in an assigned access list
+  auth: validate proxy authentication inputs and transports
+  l4: restrict web-owned overrides to numeric port bindings
+  analytics: retain tailnet-aware request attribution
+  branding: add TOMORI presentation primitives and local fonts
+  status: integrate branded responses and error feedback
+  ui: apply the shared interface to management screens
+  build: share pinned images and isolate customization checks
+
+ .dockerignore                                 |   3 +
+ .../caddy-compatibility-pins.yml              |  77 ++++++
+ .../dependabot-automerge.yml                  |   0
+ .../docker-build-pr.yml                       |   0
+ .../docker-build-trusted.yml                  |   0
+ .../stale.yml                                 |   0
+ .../test.yml                                  |   0
+ .../workflows/caddy-compatibility-pins.yml    |   2 +
+ .github/workflows/custom-ci.yml               |  24 ++
+ .nvmrc                                        |   1 +
+ CUSTOMIZATIONS.md                             |  28 +++
+ app/(auth)/link-account/LinkAccountClient.tsx |  10 +-
+ app/(auth)/login/LoginClient.tsx              |  14 +-
+ app/(auth)/portal/PortalLoginForm.tsx         |  20 +-
+ app/(dashboard)/DashboardLayoutClient.tsx     |  38 ++-
+ app/(dashboard)/OverviewClient.tsx            | 220 ++++--------------
+ .../access-lists/AccessListsClient.tsx        |   6 +-
+ app/(dashboard)/analytics/AnalyticsClient.tsx |   9 +-
+ app/(dashboard)/analytics/WorldMapInner.tsx   |   2 +-
+ .../api-docs/swagger-ui-overrides.css         |  13 ++
+ .../components/StatusSummaryBar.tsx           |   6 +-
+ app/(dashboard)/groups/GroupsClient.tsx       |   2 +-
+ app/(dashboard)/settings/SettingsClient.tsx   |   6 +-
+ app/(dashboard)/waf/WafEventsClient.tsx       |  10 +-
+ app/StatusPage.tsx                            |  12 +
+ app/api/error-feedback/route.ts               |  12 +
+ app/api/forward-auth/callback/route.ts        |   6 +
+ app/api/forward-auth/login/route.ts           |  17 +-
+ app/api/forward-auth/session-login/route.ts   |   8 +-
+ app/api/v1/openapi.json/route.ts              |   6 +-
+ app/error.tsx                                 |   8 +
+ app/global-error.tsx                          |   6 +
+ app/globals.css                               | 199 +++++++++++-----
+ app/layout.tsx                                |   6 +
+ app/maintenance/page.tsx                      |   4 +
+ app/not-found.tsx                             |   4 +
+ app/providers.tsx                             |   2 +-
+ docker/caddy/Dockerfile                       |   4 +-
+ docker/caddy/build.sh                         |   5 +
+ docker/l4-port-manager/entrypoint.sh          |  18 +-
+ docker/web/Dockerfile                         |  24 +-
+ package.json                                  |   2 +-
+ proxy.ts                                      |  31 ++-
+ public/fonts/README.md                        |   3 +
+ public/fonts/barlow-condensed-bold.ttf        | Bin 0 -> 87120 bytes
+ public/fonts/barlowcondensed-OFL.txt          |  93 ++++++++
+ public/fonts/ibm-plex-mono.ttf                | Bin 0 -> 128812 bytes
+ public/fonts/ibmplexmono-OFL.txt              |  93 ++++++++
+ scripts/test-custom.sh                        |   9 +
+ src/components/SystemBrand.tsx                |   5 +
+ src/components/SystemHeader.tsx               |  17 ++
+ .../proxy-hosts/AuthentikFields.tsx           |   5 +-
+ .../proxy-hosts/CpmForwardAuthFields.tsx      |   6 +-
+ .../proxy-hosts/DnsResolverFields.tsx         |   2 +-
+ src/components/proxy-hosts/GeoBlockFields.tsx |  10 +-
+ .../proxy-hosts/LoadBalancerFields.tsx        |  10 +-
+ .../LocationLoadBalancerFields.tsx            |   2 +-
+ src/components/proxy-hosts/MtlsConfig.tsx     |   2 +-
+ .../UpstreamDnsResolutionFields.tsx           |   2 +-
+ src/components/proxy-hosts/WafFields.tsx      |   4 +-
+ src/components/ui/DataTable.tsx               |   2 +
+ src/components/ui/PageHeader.tsx              |   6 +-
+ src/components/ui/SearchField.tsx             |   2 +-
+ src/components/ui/button.tsx                  |  19 +-
+ src/components/ui/card.tsx                    |   2 +-
+ src/components/ui/command.tsx                 |   2 +-
+ src/components/ui/dialog.tsx                  |   8 +-
+ src/components/ui/dropdown-menu.tsx           |   4 +-
+ src/components/ui/popover.tsx                 |   2 +-
+ src/components/ui/select.tsx                  |   2 +-
+ src/components/ui/sheet.tsx                   |   4 +-
+ src/components/ui/switch.tsx                  |   2 +-
+ src/components/ui/table.tsx                   |   2 +-
+ src/components/ui/tabs.tsx                    |   4 +-
+ src/components/ui/tooltip.tsx                 |   2 +-
+ src/lib/analytics-geo.ts                      |  37 +++
+ src/lib/auth-server.ts                        |   3 +
+ src/lib/branding.ts                           |   2 +
+ src/lib/caddy-anubis.ts                       |  62 +++++
+ src/lib/caddy-authentik.ts                    |  15 ++
+ src/lib/caddy-status.ts                       |  41 ++++
+ src/lib/caddy.ts                              |  59 +++--
+ src/lib/clickhouse/client.ts                  |   8 +
+ src/lib/error-feedback-handler.ts             |  17 ++
+ src/lib/error-feedback.ts                     |  30 +++
+ src/lib/log-parser.ts                         |   3 +-
+ src/lib/models/access-lists.ts                |  10 +
+ src/lib/models/proxy-hosts.ts                 |   9 +
+ src/lib/services/oauth-role-sync.ts           |  69 ++++++
+ src/lib/status-pages.ts                       |  89 +++++++
+ src/lib/status-response.ts                    |   6 +
+ src/lib/waf-log-parser.ts                     |   3 +-
+ tests/browser/responsive.ts                   |  74 ++++++
+ tests/browser/status-pages.ts                 |  38 +++
+ .../integration/forward-auth-audience.test.ts |  18 +-
+ tests/runtime/analytics-geo.test.ts           |  18 ++
+ tests/runtime/authentik-upstream.ts           |  22 ++
+ tests/runtime/error-feedback.test.ts          |  23 ++
+ tests/runtime/instance-profiles.ts            |   8 +
+ tests/runtime/maintenance-proxy.test.ts       |  39 ++++
+ tests/runtime/oauth-role-sync.test.ts         | 130 +++++++++++
+ tests/runtime/overview-display.test.tsx       |  30 +++
+ tests/runtime/status-pages.test.ts            |  26 +++
+ tests/unit/caddy-default-response.test.ts     |  35 ++-
+ tests/unit/caddy-location-rules.test.ts       |   2 +-
+ 105 files changed, 1715 insertions(+), 402 deletions(-)
+ create mode 100644 .github/upstream-workflows/caddy-compatibility-pins.yml
+ rename .github/{workflows => upstream-workflows}/dependabot-automerge.yml (100%)
+ rename .github/{workflows => upstream-workflows}/docker-build-pr.yml (100%)
+ rename .github/{workflows => upstream-workflows}/docker-build-trusted.yml (100%)
+ rename .github/{workflows => upstream-workflows}/stale.yml (100%)
+ rename .github/{workflows => upstream-workflows}/test.yml (100%)
+ create mode 100644 .github/workflows/custom-ci.yml
+ create mode 100644 .nvmrc
+ create mode 100644 CUSTOMIZATIONS.md
+ create mode 100644 app/StatusPage.tsx
+ create mode 100644 app/api/error-feedback/route.ts
+ create mode 100644 app/error.tsx
+ create mode 100644 app/global-error.tsx
+ create mode 100644 app/maintenance/page.tsx
+ create mode 100644 app/not-found.tsx
+ create mode 100644 public/fonts/README.md
+ create mode 100644 public/fonts/barlow-condensed-bold.ttf
+ create mode 100644 public/fonts/barlowcondensed-OFL.txt
+ create mode 100644 public/fonts/ibm-plex-mono.ttf
+ create mode 100644 public/fonts/ibmplexmono-OFL.txt
+ create mode 100755 scripts/test-custom.sh
+ create mode 100644 src/components/SystemBrand.tsx
+ create mode 100644 src/components/SystemHeader.tsx
+ create mode 100644 src/lib/analytics-geo.ts
+ create mode 100644 src/lib/branding.ts
+ create mode 100644 src/lib/caddy-anubis.ts
+ create mode 100644 src/lib/caddy-authentik.ts
+ create mode 100644 src/lib/caddy-status.ts
+ create mode 100644 src/lib/error-feedback-handler.ts
+ create mode 100644 src/lib/error-feedback.ts
+ create mode 100644 src/lib/services/oauth-role-sync.ts
+ create mode 100644 src/lib/status-pages.ts
+ create mode 100644 src/lib/status-response.ts
+ create mode 100644 tests/browser/responsive.ts
+ create mode 100644 tests/browser/status-pages.ts
+ create mode 100644 tests/runtime/analytics-geo.test.ts
+ create mode 100644 tests/runtime/authentik-upstream.ts
+ create mode 100644 tests/runtime/error-feedback.test.ts
+ create mode 100644 tests/runtime/instance-profiles.ts
+ create mode 100644 tests/runtime/maintenance-proxy.test.ts
+ create mode 100644 tests/runtime/oauth-role-sync.test.ts
+ create mode 100644 tests/runtime/overview-display.test.tsx
+ create mode 100644 tests/runtime/status-pages.test.ts
+
+
+base-commit: 7e5791750e5f6bbd8444ed62c680b8df8ed7c05d

@@ -1,0 +1,161 @@
+From 2799d0bcd1de7a06d36abaa8d642d97ddcc07218 Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Fri, 11 Sep 2026 07:00:04 +0000
+Subject: [PATCH 5/9] analytics: retain tailnet-aware request attribution
+
+Preserve deployed country attribution and request observation behavior
+across internal and public instances. Keep the analytics regression
+cases with the implementation.
+---
+ src/lib/analytics-geo.ts            | 37 +++++++++++++++++++++++++++++
+ src/lib/clickhouse/client.ts        |  8 +++++++
+ src/lib/log-parser.ts               |  3 ++-
+ src/lib/waf-log-parser.ts           |  3 ++-
+ tests/runtime/analytics-geo.test.ts | 18 ++++++++++++++
+ 5 files changed, 67 insertions(+), 2 deletions(-)
+ create mode 100644 src/lib/analytics-geo.ts
+ create mode 100644 tests/runtime/analytics-geo.test.ts
+
+diff --git a/src/lib/analytics-geo.ts b/src/lib/analytics-geo.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..17c8efa42bf2fa2378184251740f0e0917297825
+--- /dev/null
++++ b/src/lib/analytics-geo.ts
+@@ -0,0 +1,37 @@
++import { readFileSync } from 'node:fs';
++import { isIP } from 'node:net';
++
++type Snapshot = { at: number; peers: Record<string, string> };
++type Observations = { generated_at: number; snapshots: Snapshot[] };
++let cache: Observations | null = null;
++let loadedAt = 0;
++
++export function observedPublicIp(ip: string, ts: number, data: Observations | null, now: number): string | null {
++  const octets = ip.split('.').map(Number);
++  const tailnet = isIP(ip) === 4 && octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127;
++  if (!tailnet || !data || !Number.isFinite(ts) || now - data.generated_at > 30 || data.generated_at > now + 2) return null;
++  const sample = data.snapshots.filter(s => s.at <= ts && ts - s.at <= 20).sort((a,b) => b.at-a.at)[0];
++  // The host collector validates global unicast addresses; only its read-only file is trusted.
++  const endpoint = sample?.peers[ip];
++  return endpoint && isIP(endpoint) ? endpoint : null;
++}
++
++export function resolveAnalyticsGeo(ip: string, ts: number, lookup: (ip: string) => string | null) {
++  const direct = lookup(ip);
++  const normal = { country_code: direct, observed_public_ip: null as string | null, geoip_source: direct ? 'client_ip' : 'unknown' };
++  const file = process.env.TAILSCALE_GEOIP_OBSERVATIONS;
++  if (!file || direct) return normal;
++  const now = Math.floor(Date.now() / 1000);
++  if (now !== loadedAt) {
++    loadedAt = now;
++    try {
++      const parsed = JSON.parse(readFileSync(file, 'utf8'));
++      cache = Number.isFinite(parsed.generated_at) && Array.isArray(parsed.snapshots) ? parsed : null;
++    } catch { cache = null; }
++  }
++  try {
++    const endpoint = observedPublicIp(ip, ts, cache, now);
++    if (!endpoint) return normal;
++    return { country_code: lookup(endpoint), observed_public_ip: endpoint, geoip_source: 'tailscale_endpoint_estimate' };
++  } catch { return normal; }
++}
+diff --git a/src/lib/clickhouse/client.ts b/src/lib/clickhouse/client.ts
+index 49ead8edecce68ba21ec61822b89c4829791c8f9..0133db49c36e23f4e3777ef27885b476919aa13f 100644
+--- a/src/lib/clickhouse/client.ts
++++ b/src/lib/clickhouse/client.ts
+@@ -109,6 +109,8 @@ SETTINGS index_granularity = 8192
+ 
+ // Migrations applied to existing tables on startup (idempotent MODIFY COLUMN).
+ const TRAFFIC_EVENTS_MIGRATIONS = [
++  `ALTER TABLE traffic_events ADD COLUMN IF NOT EXISTS observed_public_ip Nullable(String) DEFAULT NULL`,
++  `ALTER TABLE traffic_events ADD COLUMN IF NOT EXISTS geoip_source LowCardinality(String) DEFAULT 'unknown'`,
+   `ALTER TABLE traffic_events MODIFY COLUMN ts DateTime CODEC(Delta, ZSTD)`,
+   `ALTER TABLE traffic_events MODIFY COLUMN client_ip String CODEC(ZSTD(3))`,
+   `ALTER TABLE traffic_events MODIFY COLUMN country_code LowCardinality(Nullable(String))`,
+@@ -121,6 +123,8 @@ const TRAFFIC_EVENTS_MIGRATIONS = [
+ ];
+ 
+ const WAF_EVENTS_MIGRATIONS = [
++  `ALTER TABLE waf_events ADD COLUMN IF NOT EXISTS observed_public_ip Nullable(String) DEFAULT NULL`,
++  `ALTER TABLE waf_events ADD COLUMN IF NOT EXISTS geoip_source LowCardinality(String) DEFAULT 'unknown'`,
+   `ALTER TABLE waf_events MODIFY COLUMN ts DateTime CODEC(Delta, ZSTD)`,
+   `ALTER TABLE waf_events MODIFY COLUMN host LowCardinality(String) DEFAULT '' CODEC(ZSTD(3))`,
+   `ALTER TABLE waf_events MODIFY COLUMN client_ip String CODEC(ZSTD(3))`,
+@@ -266,6 +270,8 @@ export interface TrafficEventRow {
+   ts: number;
+   client_ip: string;
+   country_code: string | null;
++  observed_public_ip?: string | null;
++  geoip_source?: string;
+   host: string;
+   method: string;
+   uri: string;
+@@ -281,6 +287,8 @@ export interface WafEventRow {
+   host: string;
+   client_ip: string;
+   country_code: string | null;
++  observed_public_ip?: string | null;
++  geoip_source?: string;
+   rule_id: number | null;
+   rule_message: string | null;
+   severity: string | null;
+diff --git a/src/lib/log-parser.ts b/src/lib/log-parser.ts
+index 3e64018763c79b5acc82c7466b487c1b3b021dd2..4ede95fc8bdeaea9c8ccf9cffac34df6b6a41c49 100644
+--- a/src/lib/log-parser.ts
++++ b/src/lib/log-parser.ts
+@@ -1,3 +1,4 @@
++import { resolveAnalyticsGeo } from './analytics-geo';
+ import { existsSync, statSync } from 'node:fs';
+ import maxmind, { CountryResponse } from 'maxmind';
+ import db from './db';
+@@ -157,7 +158,7 @@ export function parseLine(line: string, blocked: BlockedSignatures): TrafficEven
+   return {
+     ts,
+     client_ip: clientIp,
+-    country_code: clientIp ? lookupCountry(clientIp) : null,
++    ...resolveAnalyticsGeo(clientIp, ts, lookupCountry),
+     host: req.host ?? '',
+     method,
+     uri,
+diff --git a/src/lib/waf-log-parser.ts b/src/lib/waf-log-parser.ts
+index 9b2e7c8b87d675a638c04b865ab4c7d27ac0355f..cfc2ebc0406e9e317b9ced375a3e8879d7d0a7d5 100644
+--- a/src/lib/waf-log-parser.ts
++++ b/src/lib/waf-log-parser.ts
+@@ -1,3 +1,4 @@
++import { resolveAnalyticsGeo } from './analytics-geo';
+ import { existsSync, statSync, truncateSync } from 'node:fs';
+ import maxmind, { CountryResponse } from 'maxmind';
+ import db from './db';
+@@ -207,7 +208,7 @@ export function parseLine(line: string, ruleMap: Map<string, RuleInfo>): WafEven
+     ts,
+     host,
+     client_ip: clientIp,
+-    country_code: lookupCountry(clientIp),
++    ...resolveAnalyticsGeo(clientIp, ts, lookupCountry),
+     method: req.method ?? '',
+     uri: req.uri ?? '',
+     rule_id: ruleInfo?.ruleId ?? null,
+diff --git a/tests/runtime/analytics-geo.test.ts b/tests/runtime/analytics-geo.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..d70dced3af07dd6b8e18a531788e63c5975aaf52
+--- /dev/null
++++ b/tests/runtime/analytics-geo.test.ts
+@@ -0,0 +1,18 @@
++import { expect, test } from 'bun:test';
++import { observedPublicIp } from '../../src/lib/analytics-geo';
++const peer='100.113.109.93';
++const sample={generated_at:110,snapshots:[{at:100,peers:{[peer]:'8.8.8.8'}},{at:110,peers:{[peer]:'1.1.1.1'}}]};
++test('matches the endpoint observed before the request, not a later roaming address',()=>{
++ expect(observedPublicIp(peer,105,sample,115)).toBe('8.8.8.8');
++ expect(observedPublicIp(peer,111,sample,115)).toBe('1.1.1.1');
++});
++test('no attribution for history, stale collector, stale sample, or ordinary client IP',()=>{
++ expect(observedPublicIp(peer,99,sample,115)).toBeNull();
++ expect(observedPublicIp(peer,105,sample,150)).toBeNull();
++ expect(observedPublicIp(peer,135,{...sample,generated_at:140},140)).toBeNull();
++ expect(observedPublicIp('8.8.8.8',105,sample,115)).toBeNull();
++});
++test('empty latest snapshot clears a disconnected or relayed peer',()=>{
++ expect(observedPublicIp(peer,112,{...sample,snapshots:[sample.snapshots[0],{at:110,peers:{}}]},115)).toBeNull();
++ expect(observedPublicIp(peer,112,null,115)).toBeNull();
++});

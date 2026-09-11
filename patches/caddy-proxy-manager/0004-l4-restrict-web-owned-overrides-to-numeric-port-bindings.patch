@@ -1,0 +1,41 @@
+From 5d698438a4340d03c76637489d133a0c73c376ea Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Fri, 11 Sep 2026 07:00:03 +0000
+Subject: [PATCH 4/9] l4: restrict web-owned overrides to numeric port bindings
+
+Read only numeric port bindings from the web-owned override file. Build
+a minimal override rather than forwarding unrelated Compose settings
+to the privileged port manager.
+---
+ docker/l4-port-manager/entrypoint.sh | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/docker/l4-port-manager/entrypoint.sh b/docker/l4-port-manager/entrypoint.sh
+index 20ee208ed7af191e9208854121bac542b2c5efef..814ee9ef785fc718be810c67467a4e6d0a045ba7 100755
+--- a/docker/l4-port-manager/entrypoint.sh
++++ b/docker/l4-port-manager/entrypoint.sh
+@@ -97,7 +97,23 @@ do_apply() {
+     COMPOSE_ARGS="$COMPOSE_ARGS -f $COMPOSE_EXTRA_FILE"
+   fi
+   if [ -f "$OVERRIDE_FILE" ]; then
+-    COMPOSE_ARGS="$COMPOSE_ARGS -f $OVERRIDE_FILE"
++    # Treat the web-owned file as untrusted data. Extract only numeric port
++    # bindings and build an immutable minimal override; never pass the original
++    # document (which could alter mounts, user, entrypoint or capabilities).
++    SAFE_OVERRIDE="$DATA_DIR/.docker-compose.l4-safe.yml"
++    : > "$SAFE_OVERRIDE"
++    printf '%s\n' 'services:' '  caddy:' '    ports:' >> "$SAFE_OVERRIDE"
++    awk '
++      /ports:/ { in_ports=1; next }
++      in_ports && /^[[:space:]]+-[[:space:]]+"[0-9]+:[0-9]+(\/udp)?"[[:space:]]*$/ { print "      " substr($0, index($0, "- ")); next }
++      in_ports && /^[^[:space:]]/ { in_ports=0 }
++    ' "$OVERRIDE_FILE" >> "$SAFE_OVERRIDE"
++    if ! awk '!/^services:$/ && !/^  caddy:$/ && !/^    ports:$/ && !/^      - "[0-9]+:[0-9]+(\/udp)?"$/ { exit 1 }' "$SAFE_OVERRIDE"; then
++      write_status "failed" "Rejected invalid L4 port override"
++      rm -f "$SAFE_OVERRIDE" "$APPLY_LOCK" "$TRIGGER_FILE"
++      return 0
++    fi
++    COMPOSE_ARGS="$COMPOSE_ARGS -f $SAFE_OVERRIDE"
+   fi
+ 
+   write_status "applying" "Recreating caddy container with updated ports..."

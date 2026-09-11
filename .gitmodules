@@ -1,3 +1,0 @@
-[submodule "apps/caddy-proxy-manager"]
-	path = apps/caddy-proxy-manager
-	url = ../caddy-proxy-manager

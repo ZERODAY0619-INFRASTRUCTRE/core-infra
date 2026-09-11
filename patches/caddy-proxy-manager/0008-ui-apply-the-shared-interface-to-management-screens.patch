@@ -1,0 +1,1103 @@
+From 8c36d7f78d6494d49c65ea7f7835067a2f946439 Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Fri, 11 Sep 2026 07:00:07 +0000
+Subject: [PATCH 8/9] ui: apply the shared interface to management screens
+
+Use the shared presentation components across authentication, overview
+and management screens. Retain the deployed responsive layouts and
+associated display regression checks.
+---
+ app/(auth)/link-account/LinkAccountClient.tsx |  10 +-
+ app/(auth)/login/LoginClient.tsx              |  14 +-
+ app/(auth)/portal/PortalLoginForm.tsx         |  20 +-
+ app/(dashboard)/DashboardLayoutClient.tsx     |  38 ++-
+ app/(dashboard)/OverviewClient.tsx            | 220 ++++--------------
+ .../access-lists/AccessListsClient.tsx        |   6 +-
+ app/(dashboard)/analytics/AnalyticsClient.tsx |   9 +-
+ app/(dashboard)/analytics/WorldMapInner.tsx   |   2 +-
+ .../api-docs/swagger-ui-overrides.css         |  13 ++
+ .../components/StatusSummaryBar.tsx           |   6 +-
+ app/(dashboard)/groups/GroupsClient.tsx       |   2 +-
+ app/(dashboard)/settings/SettingsClient.tsx   |   6 +-
+ app/(dashboard)/waf/WafEventsClient.tsx       |  10 +-
+ app/api/v1/openapi.json/route.ts              |   6 +-
+ .../proxy-hosts/AuthentikFields.tsx           |   5 +-
+ .../proxy-hosts/CpmForwardAuthFields.tsx      |   6 +-
+ .../proxy-hosts/DnsResolverFields.tsx         |   2 +-
+ src/components/proxy-hosts/GeoBlockFields.tsx |  10 +-
+ .../proxy-hosts/LoadBalancerFields.tsx        |  10 +-
+ .../LocationLoadBalancerFields.tsx            |   2 +-
+ src/components/proxy-hosts/MtlsConfig.tsx     |   2 +-
+ .../UpstreamDnsResolutionFields.tsx           |   2 +-
+ src/components/proxy-hosts/WafFields.tsx      |   4 +-
+ tests/browser/responsive.ts                   |  74 ++++++
+ tests/runtime/overview-display.test.tsx       |  30 +++
+ 25 files changed, 256 insertions(+), 253 deletions(-)
+ create mode 100644 tests/browser/responsive.ts
+ create mode 100644 tests/runtime/overview-display.test.tsx
+
+diff --git a/app/(auth)/link-account/LinkAccountClient.tsx b/app/(auth)/link-account/LinkAccountClient.tsx
+index bd9d6be66d14e18a6880e391f8da286030a98925..df0de901000deacaae04aad4552527b38c4effd2 100644
+--- a/app/(auth)/link-account/LinkAccountClient.tsx
++++ b/app/(auth)/link-account/LinkAccountClient.tsx
+@@ -1,5 +1,7 @@
+ "use client";
+ 
++import { SystemHeader } from "@/src/components/SystemHeader";
++
+ import { useState, FormEvent } from "react";
+ import { useRouter } from "next/navigation";
+ import { authClient } from "@/src/lib/auth-client";
+@@ -59,10 +61,10 @@ export default function LinkAccountClient({
+   const providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
+ 
+   return (
+-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+-      <Card className="w-full max-w-sm">
+-        <CardHeader className="text-center space-y-1">
+-          <CardTitle className="text-2xl font-bold">Link Your Account</CardTitle>
++    <div className="min-h-dvh flex items-center justify-center bg-background eva-auth-canvas px-4 py-8">
++      <Card className="eva-auth-compact">
++        <SystemHeader login /><CardHeader className="text-center space-y-1">
++          <CardTitle className="text-2xl font-semibold">Link Your Account</CardTitle>
+           <CardDescription>
+             An account with <strong>{email}</strong> already exists
+           </CardDescription>
+diff --git a/app/(auth)/login/LoginClient.tsx b/app/(auth)/login/LoginClient.tsx
+index d445c9a3374e91c4f2c0d10d3546e561127bf805..4ab345ad2683c6eaa5edf3e82f9d4b2b9d9ddd2e 100644
+--- a/app/(auth)/login/LoginClient.tsx
++++ b/app/(auth)/login/LoginClient.tsx
+@@ -1,5 +1,7 @@
+ "use client";
+ 
++import { SystemHeader } from "@/src/components/SystemHeader";
++
+ import { useRouter } from "next/navigation";
+ import { FormEvent, useState } from "react";
+ import { authClient } from "@/src/lib/auth-client";
+@@ -76,10 +78,10 @@ export default function LoginClient({ enabledProviders = [] }: LoginClientProps)
+   const disabled = loginPending || !!oauthPending;
+ 
+   return (
+-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+-      <Card className="w-full max-w-sm">
+-        <CardHeader className="text-center space-y-1">
+-          <CardTitle className="text-2xl font-bold">Caddy Proxy Manager</CardTitle>
++    <div className="min-h-dvh flex items-center justify-center bg-background eva-auth-canvas px-4 py-8">
++      <div className="eva-auth-layout"><SystemHeader login /><Card className="eva-auth-form">
++        <CardHeader className="space-y-1">
++          <CardTitle className="eva-form-title">Operator authentication</CardTitle>
+           <CardDescription>
+             {enabledProviders.length > 0
+               ? "Sign in to your account"
+@@ -118,7 +120,7 @@ export default function LoginClient({ enabledProviders = [] }: LoginClientProps)
+               </div>
+               <div className="relative">
+                 <Separator />
+-                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 text-xs text-muted-foreground">
++                <span className="eva-auth-divider">
+                   Or sign in with credentials
+                 </span>
+               </div>
+@@ -164,7 +166,7 @@ export default function LoginClient({ enabledProviders = [] }: LoginClientProps)
+             {formatAppVersion()}
+           </p>
+         </CardContent>
+-      </Card>
++      </Card></div>
+     </div>
+   );
+ }
+diff --git a/app/(auth)/portal/PortalLoginForm.tsx b/app/(auth)/portal/PortalLoginForm.tsx
+index 0ff4847774da1474714b9fe6e9e58797aa5a5be2..6cbf6f91803d024cd056383b54db7024623e8a5e 100644
+--- a/app/(auth)/portal/PortalLoginForm.tsx
++++ b/app/(auth)/portal/PortalLoginForm.tsx
+@@ -1,5 +1,7 @@
+ "use client";
+ 
++import { SystemHeader } from "@/src/components/SystemHeader";
++
+ import { FormEvent, useEffect, useState } from "react";
+ import { Shield } from "lucide-react";
+ import { authClient } from "@/src/lib/auth-client";
+@@ -104,9 +106,9 @@ export default function PortalLoginForm({
+ 
+   if (!hasRedirect) {
+     return (
+-      <div className="min-h-screen flex items-center justify-center bg-background px-4">
+-        <Card className="w-full max-w-sm">
+-          <CardHeader className="text-center space-y-1">
++      <div className="min-h-dvh flex items-center justify-center bg-background eva-auth-canvas px-4 py-8">
++        <Card className="eva-auth-compact">
++          <SystemHeader login /><CardHeader className="text-center space-y-1">
+             <CardTitle className="text-xl">Authentication Required</CardTitle>
+             <CardDescription>No redirect destination specified.</CardDescription>
+           </CardHeader>
+@@ -118,9 +120,9 @@ export default function PortalLoginForm({
+   // If we have a session and are auto-redirecting, show a loading state
+   if (existingSession && pending && !error) {
+     return (
+-      <div className="min-h-screen flex items-center justify-center bg-background px-4">
+-        <Card className="w-full max-w-sm">
+-          <CardHeader className="text-center space-y-1">
++      <div className="min-h-dvh flex items-center justify-center bg-background eva-auth-canvas px-4 py-8">
++        <Card className="eva-auth-compact">
++          <SystemHeader login /><CardHeader className="text-center space-y-1">
+             <div className="flex justify-center mb-2">
+               <Shield className="h-8 w-8 text-muted-foreground" />
+             </div>
+@@ -135,9 +137,9 @@ export default function PortalLoginForm({
+   }
+ 
+   return (
+-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+-      <Card className="w-full max-w-sm">
+-        <CardHeader className="text-center space-y-1">
++    <div className="min-h-dvh flex items-center justify-center bg-background eva-auth-canvas px-4 py-8">
++      <Card className="eva-auth-compact">
++        <SystemHeader login /><CardHeader className="text-center space-y-1">
+           <div className="flex justify-center mb-2">
+             <Shield className="h-8 w-8 text-muted-foreground" />
+           </div>
+diff --git a/app/(dashboard)/DashboardLayoutClient.tsx b/app/(dashboard)/DashboardLayoutClient.tsx
+index b3cf6c1af15fc7711f707ea2e1b12a063fb6868c..d5b52a3cadfea51a4e717d88157f55cb4c8c7ea0 100644
+--- a/app/(dashboard)/DashboardLayoutClient.tsx
++++ b/app/(dashboard)/DashboardLayoutClient.tsx
+@@ -1,6 +1,9 @@
+ "use client";
+ 
+ import { ReactNode, useState } from "react";
++import { APP_NAME } from "@/src/lib/branding";
++import { SystemHeader } from "@/src/components/SystemHeader";
++import { SystemBrand } from "@/src/components/SystemBrand";
+ import Link from "next/link";
+ import { usePathname, useRouter } from "next/navigation";
+ import { useTheme } from "next-themes";
+@@ -9,7 +12,7 @@ import {
+   ShieldOff, BarChart2, History, Settings, LogOut, Menu, Sun, Moon,
+   FileJson2, Users, UserCog,
+ } from "lucide-react";
+-import { Sheet, SheetContent } from "@/components/ui/sheet";
++import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+ import { Button } from "@/components/ui/button";
+ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+ import { Separator } from "@/components/ui/separator";
+@@ -66,18 +69,7 @@ function NavContent({ pathname, user, onNavigate }: {
+ 
+   return (
+     <div className="flex flex-col h-full">
+-      {/* Logo */}
+-      <div className="px-4 py-5 flex items-center gap-2">
+-        <div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center shrink-0">
+-          <span className="text-primary-foreground font-bold text-xs">C</span>
+-        </div>
+-        <div className="flex flex-col leading-tight min-w-0">
+-          <p className="font-semibold text-sm tracking-tight">Caddy Proxy Manager</p>
+-          <span className="text-[11px] text-muted-foreground" title="Application version">
+-            {formatAppVersion()}
+-          </span>
+-        </div>
+-      </div>
++      <div className="eva-sidebar-brand"><SystemBrand /><p className="eva-build-label" aria-label="Application version"> {formatAppVersion()}</p></div>
+       <Separator />
+ 
+       {/* Nav items */}
+@@ -98,9 +90,9 @@ function NavContent({ pathname, user, onNavigate }: {
+                 asChild
+                 onClick={onNavigate}
+               >
+-                <Link href={href}>
++                <Link href={href} aria-current={active ? "page" : undefined}>
+                   <Icon className="h-4 w-4 shrink-0" />
+-                  {label}
++                  {label}<span className="eva-nav-index" aria-hidden="true">{String(NAV_ITEMS.findIndex(item => item.href === href) + 1).padStart(2, "0")}</span>
+                 </Link>
+               </Button>
+             );
+@@ -136,7 +128,7 @@ function NavContent({ pathname, user, onNavigate }: {
+                 variant="ghost"
+                 size="icon"
+                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
+-                title="Sign Out"
++                title="Sign Out" aria-label="Sign Out"
+               >
+                 <LogOut className="h-4 w-4" />
+               </Button>
+@@ -156,16 +148,16 @@ export default function DashboardLayoutClient({ user, children }: { user: User;
+   return (
+     <div className="flex min-h-screen">
+       {/* Desktop sidebar — fixed, hidden on mobile */}
+-      <aside className="hidden md:flex flex-col fixed inset-y-0 left-0 w-64 border-r border-border bg-card z-30">
++      <aside className="hidden min-[834px]:flex flex-col fixed inset-y-0 left-0 w-64 border-r border-border app-navigation z-30">
+         <NavContent pathname={pathname} user={user} />
+       </aside>
+ 
+       {/* Mobile top bar */}
+-      <header className="md:hidden fixed top-0 inset-x-0 h-12 flex items-center justify-between px-4 border-b border-border bg-card z-40">
++      <header className="min-[834px]:hidden mobile-topbar fixed top-0 inset-x-0 h-12 flex items-center justify-between px-4 border-b border-border app-navigation z-40">
+         <Button variant="ghost" size="icon" aria-label="Open navigation" onClick={() => setMobileOpen(true)}>
+           <Menu className="h-5 w-5" />
+         </Button>
+-        <span className="font-semibold text-sm">Caddy Proxy Manager</span>
++        <span className="eva-mobile-title" aria-label={APP_NAME}>{APP_NAME}</span>
+         <div className="flex items-center gap-1">
+           <ThemeToggle />
+           <Button variant="ghost" size="icon" aria-label="Go to profile" onClick={() => router.push("/profile")}>
+@@ -181,17 +173,19 @@ export default function DashboardLayoutClient({ user, children }: { user: User;
+ 
+       {/* Mobile Sheet drawer */}
+       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+-        <SheetContent side="left" className="w-64 sm:max-w-[256px] p-0">
++        <SheetContent side="left" className="app-navigation w-[min(320px,100vw)] sm:max-w-[320px] p-0">
++          <SheetTitle className="sr-only">Navigation</SheetTitle>
+           <NavContent pathname={pathname} user={user} onNavigate={() => setMobileOpen(false)} />
+         </SheetContent>
+       </Sheet>
+ 
+       {/* Main content */}
+-      <main className="flex-1 md:ml-64 mt-12 md:mt-0 overflow-x-hidden">
++      <main className="dashboard-main flex-1 min-[834px]:ml-64 min-[834px]:mt-0">
++        <SystemHeader section={NAV_ITEMS.find(item => item.href === pathname)?.label ?? "Account"} sectionNumber={String(NAV_ITEMS.findIndex(item => item.href === pathname) >= 0 ? NAV_ITEMS.findIndex(item => item.href === pathname) + 1 : 13).padStart(2, "0")} />
+         {pathname === "/settings" || pathname === "/access-lists" ? (
+           children
+         ) : (
+-          <div className="max-w-screen-xl mx-auto px-4 md:px-8 py-6">
++          <div className="dashboard-content">
+             {children}
+           </div>
+         )}
+diff --git a/app/(dashboard)/OverviewClient.tsx b/app/(dashboard)/OverviewClient.tsx
+index dfd6e9c657ea387b4f6eda1e4a7b312f8f6d26a5..7ff6aaad6578bc19073bb5fd2ad6c76f0588f472 100644
+--- a/app/(dashboard)/OverviewClient.tsx
++++ b/app/(dashboard)/OverviewClient.tsx
+@@ -1,178 +1,60 @@
+ "use client";
+ 
+ import Link from "next/link";
+-import { Card, CardContent } from "@/components/ui/card";
+-import { BarChart2, Activity } from "lucide-react";
+-import { ReactNode } from "react";
+-
+-type StatCard = {
+-  label: string;
+-  icon: ReactNode;
+-  count: number;
+-  href: string;
+-};
+-
+-type RecentEvent = {
+-  summary: string;
+-  createdAt: string;
+-};
+-
+-type TrafficSummary = {
+-  totalRequests: number;
+-  blockedPercent: number;
+-} | null;
+-
+-// Per-position accent colors for stat cards (proxy hosts, certs, access lists, traffic)
+-const CARD_ACCENTS = [
+-  { border: "border-l-violet-500", icon: "border-violet-500/30 bg-violet-500/10 text-violet-500", count: "text-violet-600 dark:text-violet-400" },
+-  { border: "border-l-emerald-500", icon: "border-emerald-500/30 bg-emerald-500/10 text-emerald-500", count: "text-emerald-600 dark:text-emerald-400" },
+-  { border: "border-l-amber-500", icon: "border-amber-500/30 bg-amber-500/10 text-amber-500", count: "text-amber-600 dark:text-amber-400" },
+-];
+-
+-const TRAFFIC_ACCENT = {
+-  border: "border-l-cyan-500",
+-  icon: "border-cyan-500/30 bg-cyan-500/10 text-cyan-500",
+-  count: "text-cyan-600 dark:text-cyan-400",
+-};
+-
+-function getEventDotColor(summary: string): string {
+-  const lower = summary.toLowerCase();
+-  if (lower.startsWith("delete") || lower.startsWith("remove")) return "bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.5)]";
+-  if (lower.startsWith("create") || lower.startsWith("add")) return "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]";
+-  return "bg-primary shadow-[0_0_6px_var(--primary)]";
+-}
+-
+-function formatRelativeTime(iso: string): string {
+-  const diff = Date.now() - new Date(iso).getTime();
+-  const mins = Math.floor(diff / 60000);
+-  if (mins < 1) return "just now";
+-  if (mins < 60) return `${mins}m ago`;
+-  const hrs = Math.floor(mins / 60);
+-  if (hrs < 24) return `${hrs}h ago`;
+-  return new Date(iso).toLocaleDateString();
++import { ArrowUpRight, Activity } from "lucide-react";
++import { CSSProperties, ReactNode } from "react";
++import { Button } from "@/components/ui/button";
++
++type StatCard = { label: string; icon: ReactNode; count: number; href: string };
++type RecentEvent = { summary: string; createdAt: string };
++type TrafficSummary = { totalRequests: number; blockedPercent: number; analyticsDisabled?: boolean; loggingDisabled?: boolean } | null;
++
++function relativeTime(value: string) {
++  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
++  if (minutes < 1) return "JUST NOW";
++  if (minutes < 60) return `${minutes}M AGO`;
++  if (minutes < 1440) return `${Math.floor(minutes / 60)}H AGO`;
++  return new Date(value).toLocaleDateString("en-US");
+ }
+ 
+-export default function OverviewClient({
+-  userName,
+-  stats,
+-  trafficSummary,
+-  recentEvents,
+-  isAdmin = true
+-}: {
+-  userName: string;
+-  stats: StatCard[];
+-  trafficSummary: TrafficSummary;
+-  recentEvents: RecentEvent[];
+-  isAdmin?: boolean;
++export default function OverviewClient({ userName, stats, trafficSummary, recentEvents, isAdmin = true }: {
++  userName: string; stats: StatCard[]; trafficSummary: TrafficSummary; recentEvents: RecentEvent[]; isAdmin?: boolean;
+ }) {
+-  return (
+-    <div className="flex flex-col gap-8">
+-      {/* Welcome header */}
+-      <div>
+-        <h1 className="text-2xl font-bold tracking-tight">
+-          Welcome back, <span className="text-primary">{userName}</span>
+-        </h1>
+-        <p className="text-sm text-muted-foreground mt-1">
+-          Everything you need to orchestrate Caddy proxies, certificates, and secure edge services.
+-        </p>
+-      </div>
+-
+-      {/* Stat grid */}
+-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+-        {stats.map((stat, i) => {
+-          const accent = CARD_ACCENTS[i % CARD_ACCENTS.length];
+-          return (
+-            <Link key={stat.label} href={stat.href} className="block group">
+-              <Card className={`border-l-2 ${accent.border} hover:bg-muted/40 transition-colors`}>
+-                <CardContent className="p-5">
+-                  <div className="flex items-start justify-between gap-2">
+-                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${accent.icon} transition-transform group-hover:scale-110`}>
+-                      {stat.icon}
+-                    </div>
+-                    <span className={`text-3xl font-bold tabular-nums ${accent.count}`}>
+-                      {stat.count}
+-                    </span>
+-                  </div>
+-                  <p className="text-sm font-medium text-muted-foreground mt-3">{stat.label}</p>
+-                </CardContent>
+-              </Card>
+-            </Link>
+-          );
+-        })}
+-
+-        {/* Traffic (24h) card — admin only */}
+-        {isAdmin && (
+-          <Link href="/analytics" className="block group">
+-            <Card className={`border-l-2 ${TRAFFIC_ACCENT.border} hover:bg-muted/40 transition-colors`}>
+-              <CardContent className="p-5">
+-                <div className="flex items-start justify-between gap-2">
+-                  <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${TRAFFIC_ACCENT.icon} transition-transform group-hover:scale-110`}>
+-                    <BarChart2 className="h-4 w-4" />
+-                  </div>
+-                  <span className={`text-3xl font-bold tabular-nums ${TRAFFIC_ACCENT.count}`}>
+-                    {trafficSummary ? trafficSummary.totalRequests.toLocaleString() : "—"}
+-                  </span>
+-                </div>
+-                <p className="text-sm font-medium text-muted-foreground mt-3">Traffic (24h)</p>
+-                {trafficSummary && trafficSummary.totalRequests > 0 && (
+-                  <div className="mt-2">
+-                    <div className="flex items-center justify-between mb-1">
+-                      <span className="text-xs text-muted-foreground">Blocked</span>
+-                      <span className={`text-xs font-semibold tabular-nums ${trafficSummary.blockedPercent > 0 ? "text-rose-500" : "text-muted-foreground"}`}>
+-                        {trafficSummary.blockedPercent}%
+-                      </span>
+-                    </div>
+-                    <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
+-                      <div
+-                        className="h-full rounded-full bg-rose-500 transition-all"
+-                        style={{ width: `${Math.min(trafficSummary.blockedPercent, 100)}%` }}
+-                      />
+-                    </div>
+-                  </div>
+-                )}
+-              </CardContent>
+-            </Card>
+-          </Link>
+-        )}
+-      </div>
+-
+-      {/* Recent Activity — admin only */}
+-      {isAdmin && (
+-        <div className="flex flex-col gap-3">
+-          <div className="flex items-center gap-2">
+-            <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
+-              <Activity className="h-3.5 w-3.5" />
++  const available = !!trafficSummary && !trafficSummary.analyticsDisabled && !trafficSummary.loggingDisabled;
++  const total = available ? trafficSummary.totalRequests : null;
++  const blocked = available && total! > 0 && Number.isFinite(trafficSummary.blockedPercent)
++    ? Math.max(0, Math.min(100, trafficSummary.blockedPercent)) : null;
++  const unavailable = trafficSummary?.analyticsDisabled || trafficSummary?.loggingDisabled ? "COLLECTION DISABLED" : "DATA UNAVAILABLE";
++  return <div className="eva-overview">
++    <div className="eva-page-intro"><div><p className="eva-kicker">CENTRAL OPERATIONS</p><h1>COMMAND OVERVIEW</h1><p className="eva-operator">Operator / {userName}</p></div>
++      {isAdmin && <Button asChild variant="outline"><Link href="/analytics">Open analytics <ArrowUpRight /></Link></Button>}
++    </div>
++    {isAdmin ? <>
++      <div className="eva-command-board">
++        <section className="eva-traffic-instrument eva-panel" aria-label="Traffic in the last 24 hours">
++          <div className="eva-panel-label"><span>01 / TRAFFIC MONITOR</span><span>WINDOW / 24H</span></div>
++          <div className="eva-instrument-body">
++            <div className="eva-request-readout"><span className="eva-instrument-tag">TRAFFIC / INGRESS</span><p className="eva-kicker">REQUEST VOLUME</p><p className="eva-hero-number" title={total === null ? unavailable : total.toLocaleString("en-US")}>{total === null ? "—" : new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(total)}</p><p className="eva-readout-state">{total === null ? unavailable : total === 0 ? "NO REQUESTS RECORDED" : "REQUESTS RECORDED"}</p></div>
++            <div className="eva-radial" aria-label={blocked === null ? "Blocked ratio unavailable" : `${blocked.toFixed(1)} percent blocked`}>
++              <svg viewBox="0 0 220 220" aria-hidden="true"><circle className="eva-dial-envelope" cx="110" cy="110" r="96" /><circle className="eva-dial-inner" cx="110" cy="110" r="65" /><circle className="eva-dial-outer" cx="110" cy="110" r="105" />{Array.from({ length: 60 }, (_, index) => <line key={index} className="eva-dial-tick" x1="110" y1="11" x2="110" y2={index % 5 === 0 ? "23" : "17"} transform={`rotate(${index * 6} 110 110)`} />)}<circle className="eva-dial-track" cx="110" cy="110" r="80" /><circle className="eva-dial-value" cx="110" cy="110" r="80" pathLength="100" strokeDasharray={`${blocked ?? 0} 100`} transform="rotate(-90 110 110)" /><path className="eva-dial-cross" d="M24 110h15m142 0h15M110 24v15m0 142v15" /><path className="eva-dial-bracket" d="M6 45V6h39m130 0h39v39M6 175v39h39m130 0h39v-39" /></svg>
++              <div className="eva-radial-copy"><span>BLOCKED</span><strong>{blocked === null ? "—" : blocked.toFixed(1)}<small>{blocked === null ? "" : "%"}</small></strong><span>{blocked === null ? "NO RATIO DATA" : "OF REQUESTS"}</span></div>
+             </div>
+-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Recent Activity</h2>
+           </div>
+-
+-          <Card>
+-            <CardContent className="p-0">
+-              {recentEvents.length === 0 ? (
+-                <p className="px-5 py-6 text-sm text-muted-foreground">No activity recorded yet.</p>
+-              ) : (
+-                <div className="relative">
+-                  {/* Vertical timeline line */}
+-                  <div className="absolute left-[28px] top-4 bottom-4 w-px bg-border" />
+-                  {recentEvents.map((event, index) => (
+-                    <div
+-                      key={`${event.createdAt}-${index}`}
+-                      className="relative flex items-start gap-4 px-5 py-3 hover:bg-muted/30 transition-colors"
+-                    >
+-                      {/* Dot */}
+-                      <div className={`relative z-10 mt-1 h-3 w-3 shrink-0 rounded-full ${getEventDotColor(event.summary)}`} />
+-                      <span className="flex-1 text-sm leading-snug">{event.summary}</span>
+-                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+-                        {formatRelativeTime(event.createdAt)}
+-                      </span>
+-                    </div>
+-                  ))}
+-                </div>
+-              )}
+-            </CardContent>
+-          </Card>
+-        </div>
+-      )}
+-    </div>
+-  );
++          <div className="eva-ratio-array" aria-label={blocked === null ? "Blocked share has no sample" : `Blocked share: ${blocked.toFixed(1)} percent`}>
++            <div className="eva-array-legend"><span>BLOCKED SHARE</span><span>{blocked === null ? "NO SAMPLE" : `${blocked.toFixed(1)} / 100%`}</span></div>
++            <div className="eva-array-slots" aria-hidden="true">{Array.from({ length: 20 }, (_, index) => <i key={index} style={{ "--slot-fill": `${blocked === null ? 0 : Math.max(0, Math.min(100, (blocked - index * 5) * 20))}%` } as CSSProperties} />)}</div>
++            <div className="eva-array-scale" aria-hidden="true"><span>0</span><span>25</span><span>50</span><span>75</span><span>100%</span></div>
++          </div>
++          <div className="eva-instrument-footer"><span>24H AGGREGATE</span><span>DETAIL / REQUEST ANALYTICS</span><Link href="/analytics" aria-label="View request analytics"><ArrowUpRight size={18} /></Link></div>
++        </section>
++        <section className="eva-resource-bank eva-panel" aria-label="Configured resources"><div className="eva-panel-label"><span>02 / RESOURCE REGISTRY</span><span>CONFIGURED</span></div>
++          {stats.map((stat, index) => <Link className="eva-resource-row" key={stat.href} href={stat.href}><span className="eva-resource-index">{String(index + 1).padStart(2, "0")}</span><span className="eva-resource-detail"><span className="eva-resource-name">{stat.icon}{stat.label}</span><span className="eva-resource-slots" aria-hidden="true">{Array.from({ length: 12 }, (_, slot) => <i key={slot} data-filled={slot < stat.count} />)}</span></span><strong>{stat.count.toLocaleString("en-US")}</strong><ArrowUpRight size={16} /></Link>)}
++          <p className="eva-bank-note">Each slot represents one resource.<br />Up to 12 shown; totals remain exact.</p>
++        </section>
++      </div>
++      <section className="eva-event-log eva-panel" aria-labelledby="activity-title"><div className="eva-panel-label"><h2 id="activity-title"><Activity size={15} /> EVENT LOG</h2><Link href="/audit-log">VIEW AUDIT LOG <ArrowUpRight size={14} /></Link></div>
++        {recentEvents.length === 0 ? <p className="eva-empty-state">NO EVENTS RECORDED</p> : <ol>{recentEvents.map((event, index) => <li key={`${event.createdAt}-${index}`}><span className="eva-event-index">{String(index + 1).padStart(2, "0")}</span><p>{event.summary}</p><time dateTime={event.createdAt} title={new Date(event.createdAt).toLocaleString("en-US")}>{relativeTime(event.createdAt)}</time></li>)}</ol>}
++      </section>
++    </> : <section className="eva-panel eva-user-entry"><p className="eva-kicker">ACCOUNT ACCESS</p><h2>YOUR SESSION IS READY</h2><p>Manage your profile and account settings.</p><Button asChild><Link href="/profile">Open profile <ArrowUpRight /></Link></Button></section>}
++  </div>;
+ }
+diff --git a/app/(dashboard)/access-lists/AccessListsClient.tsx b/app/(dashboard)/access-lists/AccessListsClient.tsx
+index 3b7de881b33bd4e8ac81c518511636ed1c8c7cb2..7f5c1c5d1c70422379cc54c7cf829243f4697486 100644
+--- a/app/(dashboard)/access-lists/AccessListsClient.tsx
++++ b/app/(dashboard)/access-lists/AccessListsClient.tsx
+@@ -427,7 +427,7 @@ function SettingsTab({
+             value={desc}
+             onChange={(e) => setDesc(e.target.value)}
+             placeholder="What is this list for? Who manages it?"
+-            className="flex min-h-[88px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
++            className="flex min-h-[88px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
+           />
+         </div>
+         <div className="flex items-center gap-2 pt-1">
+@@ -844,7 +844,7 @@ function ListsRail({
+   ];
+ 
+   return (
+-    <div className="flex flex-col w-[320px] shrink-0 border-r border-border bg-card">
++    <div className="flex flex-col w-full lg:w-[320px] max-h-[45dvh] lg:max-h-none shrink-0 border-b lg:border-b-0 lg:border-r border-border bg-card">
+       {/* Header */}
+       <div className="px-4 pt-4 pb-3 flex items-center justify-between gap-2">
+         <div className="min-w-0">
+@@ -1004,7 +1004,7 @@ export default function AccessListsClient({ lists: initialLists, usage: initialU
+   return (
+     <>
+       {/* Split layout: rail + detail — break out of parent padding to fill width */}
+-      <div className="flex h-[calc(100vh-48px)] md:h-screen border-t md:border-t-0">
++      <div className="flex flex-col lg:flex-row min-h-[calc(100dvh-56px)] lg:h-dvh border-t lg:border-t-0">
+         <ListsRail
+           lists={lists}
+           selectedId={selectedId}
+diff --git a/app/(dashboard)/analytics/AnalyticsClient.tsx b/app/(dashboard)/analytics/AnalyticsClient.tsx
+index fa8889a19b9e15ec26836743c8c8d5f148c79820..48afed40936315d3149b28cda33ea882d912be82 100644
+--- a/app/(dashboard)/analytics/AnalyticsClient.tsx
++++ b/app/(dashboard)/analytics/AnalyticsClient.tsx
+@@ -465,7 +465,7 @@ export default function AnalyticsClient() {
+   const timelineOptions: ApexOptions = {
+     ...DARK_CHART,
+     chart: { ...DARK_CHART.chart, type: 'area', stacked: false, id: 'timeline' },
+-    colors: ['#3b82f6', '#ef4444'],
++    colors: ['#d7ae55', '#ef4444'],
+     fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.45, opacityTo: 0.05 } },
+     stroke: { curve: 'smooth', width: 2 },
+     dataLabels: { enabled: false },
+@@ -482,7 +482,7 @@ export default function AnalyticsClient() {
+   const donutOptions: ApexOptions = {
+     ...DARK_CHART,
+     chart: { ...DARK_CHART.chart, type: 'donut', id: 'protocols' },
+-    colors: ['#3b82f6', '#8b5cf6', '#06b6d4', '#f59e0b'],
++    colors: ['#d7ae55', '#9bb977', '#b5bca7', '#f59e0b'],
+     labels: protocols.map(p => p.proto),
+     legend: { position: 'bottom', labels: { colors: '#94a3b8' } },
+     dataLabels: { style: { colors: ['#fff'] } },
+@@ -494,7 +494,7 @@ export default function AnalyticsClient() {
+   const barOptions: ApexOptions = {
+     ...DARK_CHART,
+     chart: { ...DARK_CHART.chart, type: 'bar', id: 'ua' },
+-    colors: ['#7f5bff'],
++    colors: ['#9bb977'],
+     plotOptions: { bar: { horizontal: true, borderRadius: 4 } },
+     dataLabels: { enabled: false },
+     xaxis: { categories: uaNames, labels: { style: { colors: '#94a3b8', fontSize: '12px' } } },
+@@ -530,7 +530,7 @@ export default function AnalyticsClient() {
+         </div>
+         <div className="flex flex-row items-center gap-3 flex-wrap">
+           {/* Interval toggle group */}
+-          <div className="flex items-center rounded-md border border-input p-0.5 gap-0.5">
++          <div className="flex flex-wrap max-w-full items-center rounded-none border border-input p-0.5 gap-0.5">
+             {INTERVALS.map(iv => (
+               <Button
+                 key={iv}
+@@ -655,6 +655,7 @@ export default function AnalyticsClient() {
+             </div>
+             <div className="rounded-lg border border-white/[0.12] p-4">
+               <p className="text-sm font-semibold mb-3">Top Countries</p>
++              <p className="text-xs text-muted-foreground mb-3">Countries are IP-based estimates. Tailscale traffic may use an observed public endpoint; unavailable locations remain unknown.</p>
+               {countries.length === 0 ? (
+                 <div className="py-8 text-center text-muted-foreground text-sm">No geo data available</div>
+               ) : (
+diff --git a/app/(dashboard)/analytics/WorldMapInner.tsx b/app/(dashboard)/analytics/WorldMapInner.tsx
+index b9df17da8e3a4b56039d08b6e56c3907b46e821b..be3a34dc1877ab524d5153a2cb7ff20700b2e730 100644
+--- a/app/(dashboard)/analytics/WorldMapInner.tsx
++++ b/app/(dashboard)/analytics/WorldMapInner.tsx
+@@ -293,7 +293,7 @@ export default function WorldMapInner({ data, selectedCountry }: { data: Country
+         .wm-popup .maplibregl-popup-tip { display: none !important; }
+       `}</style>
+ 
+-      <div className="rounded-lg overflow-hidden border border-white/[0.08] flex-1 min-h-[280px] min-w-[400px] w-full">
++      <div className="rounded-lg overflow-hidden border border-white/[0.08] flex-1 min-h-[280px] min-w-0 w-full">
+         <MapGL
+           mapStyle={MAP_STYLE}
+           initialViewState={{
+diff --git a/app/(dashboard)/api-docs/swagger-ui-overrides.css b/app/(dashboard)/api-docs/swagger-ui-overrides.css
+index 417b2d43d79d996c5acf867591c3e940c1b80bda..30765d7a463daef78019f943fdaf2ab40c28f6a9 100644
+--- a/app/(dashboard)/api-docs/swagger-ui-overrides.css
++++ b/app/(dashboard)/api-docs/swagger-ui-overrides.css
+@@ -14,3 +14,16 @@
+ .swagger-ui .information-container {
+   padding: 1rem 0;
+ }
++
++.swagger-ui { min-width: 0; }
++.swagger-ui .wrapper { padding-inline: 0; }
++.swagger-ui .opblock-summary { flex-wrap: wrap; gap: 8px; }
++.swagger-ui .opblock-summary-path { min-width: 0; overflow-wrap: anywhere; }
++.swagger-ui pre, .swagger-ui .highlight-code { max-width: 100%; overflow-x: auto; }
++.swagger-ui table { display: block; max-width: 100%; overflow-x: auto; }
++@media (max-width: 640px) {
++  .swagger-ui .info .title { font-size: 28px; }
++  .swagger-ui .scheme-container .schemes { flex-direction: column; align-items: stretch; gap: 16px; }
++  .swagger-ui .opblock .opblock-summary-path { max-width: 100%; font-size: 14px; }
++  .swagger-ui .btn, .swagger-ui select { min-height: 44px; }
++}
+diff --git a/app/(dashboard)/certificates/components/StatusSummaryBar.tsx b/app/(dashboard)/certificates/components/StatusSummaryBar.tsx
+index bfdeb13a4db451d0eb053c944af88de8b706f153..b80bffb2646a6950a7ce5aa3ca2a5971861ef283 100644
+--- a/app/(dashboard)/certificates/components/StatusSummaryBar.tsx
++++ b/app/(dashboard)/certificates/components/StatusSummaryBar.tsx
+@@ -52,7 +52,7 @@ export function StatusSummaryBar({ expired, expiringSoon, healthy, filter, onFil
+         active={filter === "expired"}
+         onClick={() => toggle("expired")}
+         base="border-rose-500/30 bg-rose-500/5 text-rose-600 dark:text-rose-400 hover:bg-rose-500/15"
+-        activeStyle="border-rose-500 bg-rose-500 text-white shadow-[0_0_12px_rgba(244,63,94,0.3)]"
++        activeStyle="border-rose-500 bg-rose-500 text-white"
+       />
+       <StatChip
+         icon={<Clock className="h-4 w-4" />}
+@@ -61,7 +61,7 @@ export function StatusSummaryBar({ expired, expiringSoon, healthy, filter, onFil
+         active={filter === "expiring_soon"}
+         onClick={() => toggle("expiring_soon")}
+         base="border-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-400 hover:bg-amber-500/15"
+-        activeStyle="border-amber-500 bg-amber-500 text-white shadow-[0_0_12px_rgba(245,158,11,0.3)]"
++        activeStyle="border-amber-500 bg-amber-500 text-white"
+       />
+       <StatChip
+         icon={<CheckCircle2 className="h-4 w-4" />}
+@@ -70,7 +70,7 @@ export function StatusSummaryBar({ expired, expiringSoon, healthy, filter, onFil
+         active={filter === "ok"}
+         onClick={() => toggle("ok")}
+         base="border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/15"
+-        activeStyle="border-emerald-500 bg-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.3)]"
++        activeStyle="border-emerald-500 bg-emerald-500 text-white"
+       />
+     </div>
+   );
+diff --git a/app/(dashboard)/groups/GroupsClient.tsx b/app/(dashboard)/groups/GroupsClient.tsx
+index 86b1605340321e440a762720ded6e593a1aea0ec..5dd15719ac7eb35f6116e3bbc822f504a21a1256 100644
+--- a/app/(dashboard)/groups/GroupsClient.tsx
++++ b/app/(dashboard)/groups/GroupsClient.tsx
+@@ -79,7 +79,7 @@ export default function GroupsClient({ groups, users }: Props) {
+               }}
+               className="flex flex-col gap-3"
+             >
+-              <div className="grid grid-cols-2 gap-3">
++              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                 <div className="space-y-1">
+                   <Label htmlFor="name">Name</Label>
+                   <Input id="name" name="name" placeholder="e.g. Developers" required />
+diff --git a/app/(dashboard)/settings/SettingsClient.tsx b/app/(dashboard)/settings/SettingsClient.tsx
+index 6be8d71444058d021247fc339e7ccf4f126d48a3..e3f4ea2f9a3f74cbee9127428da7d42530e5d504 100644
+--- a/app/(dashboard)/settings/SettingsClient.tsx
++++ b/app/(dashboard)/settings/SettingsClient.tsx
+@@ -1420,7 +1420,7 @@ function DnsResolversSection({
+               defaultValue={dns?.resolvers?.join("\n") ?? ""}
+               rows={2}
+               disabled={isSlave && !dnsOverride}
+-              className="flex min-h-[56px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none"
++              className="flex min-h-[56px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+             />
+           </FormRow>
+           <FormRow label="Fallback resolvers">
+@@ -1430,7 +1430,7 @@ function DnsResolversSection({
+               defaultValue={dns?.fallbacks?.join("\n") ?? ""}
+               rows={2}
+               disabled={isSlave && !dnsOverride}
+-              className="flex min-h-[56px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none"
++              className="flex min-h-[56px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+             />
+           </FormRow>
+           <FormRow label="Query timeout" hint="e.g. 5s, 10s">
+@@ -1569,7 +1569,7 @@ function TrustedProxiesSection({
+           )}
+           <FormRow
+             label="Trusted proxy ranges"
+-            hint="CIDRs, IPs, or the private_ranges shorthand — one per line. When CPM runs behind another proxy, Caddy resolves the real client IP from these. Leave empty to keep the current behaviour."
++            hint="CIDRs, IPs, or the private_ranges shorthand — one per line. When TOMORI runs behind another proxy, Caddy resolves the real client IP from these. Leave empty to keep the current behaviour."
+           >
+             <Textarea
+               name="ranges"
+diff --git a/app/(dashboard)/waf/WafEventsClient.tsx b/app/(dashboard)/waf/WafEventsClient.tsx
+index 4c7ff523755bec55dbc5f72333fd665b6ab42f17..eb76b621836a41eb5e44a0bec40d06b3f2596076 100644
+--- a/app/(dashboard)/waf/WafEventsClient.tsx
++++ b/app/(dashboard)/waf/WafEventsClient.tsx
+@@ -208,7 +208,7 @@ function StatsBar({ stats }: { stats: WafEventStats }) {
+   ];
+ 
+   return (
+-    <div className="grid grid-cols-5 gap-3">
++    <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+       {items.map(({ label, value, color }) => (
+         <div key={label} className="rounded-lg border bg-card px-4 py-3 flex flex-col gap-0.5">
+           <span className={cn("text-2xl font-bold leading-none", color || "text-foreground")}>{value}</span>
+@@ -285,7 +285,7 @@ function AuditPanel({ rawData }: { rawData: string | null }) {
+         {/* ── Overview ── */}
+         {innerTab === "overview" && tx && (
+           <>
+-            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
++            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+               <DetailRow label="Transaction ID">
+                 <span className="font-mono text-xs">{tx.id ?? "—"}</span>
+               </DetailRow>
+@@ -376,7 +376,7 @@ function AuditPanel({ rawData }: { rawData: string | null }) {
+           <div className="flex flex-col gap-4">
+             {msgs.map((m, i) => (
+               <div key={i} className="flex flex-col gap-2.5">
+-                <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
++                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2.5">
+                   <DetailRow label="Rule ID">
+                     <span className="font-mono text-xs text-destructive font-semibold">{m.details?.ruleId ?? "—"}</span>
+                   </DetailRow>
+@@ -489,7 +489,7 @@ function EventDetailPanel({
+       />
+ 
+       {/* Drawer */}
+-      <aside className="fixed top-0 right-0 bottom-0 z-50 flex w-[540px] max-w-[92vw] flex-col border-l border-border bg-card shadow-2xl">
++      <aside className="fixed top-0 right-0 bottom-0 z-50 flex w-[540px] max-w-[92vw] flex-col border-l border-border bg-card">
+         {/* Header */}
+         <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
+           <BlockedChip blocked={event.blocked} />
+@@ -504,7 +504,7 @@ function EventDetailPanel({
+         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+ 
+           {/* Metadata grid */}
+-          <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border bg-muted/30 p-4">
++          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 rounded-lg border bg-muted/30 p-4">
+             <DetailRow label="Time (UTC)">
+               <p className="text-sm">{formatDateTimeUtc(event.ts * 1000)}</p>
+             </DetailRow>
+diff --git a/app/api/v1/openapi.json/route.ts b/app/api/v1/openapi.json/route.ts
+index e63ef5ce0a5f4ebe04aba8197eeed3d1e8db8675..b19a60fe1ac2e0d04de7ec48d8d8c7e7b6c2caab 100644
+--- a/app/api/v1/openapi.json/route.ts
++++ b/app/api/v1/openapi.json/route.ts
+@@ -1,3 +1,4 @@
++import { APP_NAME, APP_FULL_NAME } from "@/src/lib/branding";
+ import { NextRequest, NextResponse } from "next/server";
+ import { requireApiAdmin, apiErrorResponse } from "@/src/lib/api-auth";
+ import { APP_VERSION } from "@/src/lib/app-version";
+@@ -5,10 +6,11 @@ import { APP_VERSION } from "@/src/lib/app-version";
+ const spec = {
+   openapi: "3.1.0",
+   info: {
+-    title: "Caddy Proxy Manager API",
++    title: `${APP_NAME} API`,
++    summary: APP_FULL_NAME,
+     version: APP_VERSION,
+     description:
+-      "REST API for managing Caddy reverse proxy configurations, certificates, access lists, and more.",
++      `${APP_FULL_NAME}.\n\nREST API for managing Caddy reverse proxy configurations, certificates, access lists, and more.`,
+   },
+   servers: [{ url: "/" }],
+   security: [{ bearerAuth: [] }, { sessionAuth: [] }],
+diff --git a/src/components/proxy-hosts/AuthentikFields.tsx b/src/components/proxy-hosts/AuthentikFields.tsx
+index 8ee383c6e89521f27356f3b449f30c4b193d185e..19758a3610aee78a2b1e23f09311b8cdcf260b52 100644
+--- a/src/components/proxy-hosts/AuthentikFields.tsx
++++ b/src/components/proxy-hosts/AuthentikFields.tsx
+@@ -134,7 +134,7 @@ export function AuthentikFields({
+                     />
+                 </div>
+ 
+-                <div className={cn(
++                <div inert={!enabled} className={cn(
+                     "overflow-hidden transition-all duration-200",
+                     enabled ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+                 )}>
+@@ -149,12 +149,13 @@ export function AuthentikFields({
+                                 required={enabled}
+                                 disabled={!enabled}
+                             />
++                            <p className="text-xs text-muted-foreground mt-1">Use outpost.goauthentik.io here. Enter your Authentik server URL in Outpost Upstream URL below.</p>
+                         </div>
+                         <div>
+                             <label className="text-sm font-medium mb-1 block">Outpost Upstream URL</label>
+                             <Input
+                                 name="authentikOutpostUpstream"
+-                                placeholder="https://outpost.internal:9000"
++                                placeholder="http://authentik-server:9000"
+                                 value={outpostUpstream}
+                                 onChange={(event) => setOutpostUpstream(event.target.value)}
+                                 required={enabled}
+diff --git a/src/components/proxy-hosts/CpmForwardAuthFields.tsx b/src/components/proxy-hosts/CpmForwardAuthFields.tsx
+index 55c89be128a72889296d70fb9ea3190a50f3574c..6b50cf46c7361fdf8c3be40a43d38da7da1b256c 100644
+--- a/src/components/proxy-hosts/CpmForwardAuthFields.tsx
++++ b/src/components/proxy-hosts/CpmForwardAuthFields.tsx
+@@ -69,9 +69,9 @@ export function CpmForwardAuthFields({
+             <div className="flex flex-col gap-4">
+                 <div className="flex flex-row items-center justify-between">
+                     <div>
+-                        <p className="text-sm font-semibold">CPM Forward Auth</p>
++                        <p className="text-sm font-semibold">TOMORI Forward Auth</p>
+                         <p className="text-sm text-muted-foreground">
+-                            Require users to authenticate via Caddy Proxy Manager before accessing this host
++                            Require users to authenticate via TOMORI before accessing this host
+                         </p>
+                     </div>
+                     <Switch
+@@ -81,7 +81,7 @@ export function CpmForwardAuthFields({
+                     />
+                 </div>
+ 
+-                <div className={cn(
++                <div inert={!enabled} className={cn(
+                     "overflow-hidden transition-all duration-200",
+                     enabled ? "max-h-[3000px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+                 )}>
+diff --git a/src/components/proxy-hosts/DnsResolverFields.tsx b/src/components/proxy-hosts/DnsResolverFields.tsx
+index 203bde3086b1b405a2bdd13d30edd562419a3e38..5f2de9b4e0edd2a3d18b6e748ff6a5a51a18b56a 100644
+--- a/src/components/proxy-hosts/DnsResolverFields.tsx
++++ b/src/components/proxy-hosts/DnsResolverFields.tsx
+@@ -33,7 +33,7 @@ export function DnsResolverFields({
+           />
+         </div>
+ 
+-        <div className={cn(
++        <div inert={!enabled} className={cn(
+           "overflow-hidden transition-all duration-200",
+           enabled ? "max-h-[1000px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+         )}>
+diff --git a/src/components/proxy-hosts/GeoBlockFields.tsx b/src/components/proxy-hosts/GeoBlockFields.tsx
+index 3c6818807a82541c31f3c454424804e000513713..c14f88c46dea59e00601d5e7078d5beb75d781de 100644
+--- a/src/components/proxy-hosts/GeoBlockFields.tsx
++++ b/src/components/proxy-hosts/GeoBlockFields.tsx
+@@ -354,7 +354,7 @@ function ContinentPicker({ name, initialValues = [], accentColor = "warning" }:
+                 "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border-[1.5px] cursor-pointer select-none transition-all duration-100",
+                 isSelected
+                   ? isWarning
+-                    ? "border-yellow-500 bg-yellow-500/10 shadow-[0_0_0_1px_rgba(237,108,2,0.25)]"
++                    ? "border-primary bg-primary/10"
+                     : "border-green-500 bg-green-500/10 shadow-[0_0_0_1px_rgba(46,125,50,0.25)]"
+                   : "border-border hover:border-muted-foreground hover:bg-accent"
+               )}
+@@ -570,7 +570,7 @@ function RulesPanel({ prefix, initial, resetKey = 0 }: RulesPanelProps) {
+       />
+ 
+       {/* CIDRs + IPs */}
+-      <div className="grid grid-cols-2 gap-4">
++      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+         <TagInput
+           key={`${prefix}-cidrs-${resetKey}`}
+           name={`geoblock${cap}Cidrs`}
+@@ -679,7 +679,7 @@ export function GeoBlockFields({ initialValues, showModeSelector = true }: GeoBl
+       <input type="hidden" name="geoblockMode" value={mode} />
+ 
+       {/* Detail fields */}
+-      <div className={cn(
++      <div inert={!enabled} className={cn(
+         "overflow-hidden transition-all duration-200",
+         enabled ? "max-h-[3000px] opacity-100 mt-4" : "max-h-0 opacity-0 pointer-events-none"
+       )}>
+@@ -693,7 +693,7 @@ export function GeoBlockFields({ initialValues, showModeSelector = true }: GeoBl
+                   className={cn(
+                     "flex-1 py-2 px-3 rounded-xl border-[1.5px] cursor-pointer text-center transition-all duration-150 select-none",
+                     mode === v
+-                      ? "border-yellow-500 bg-yellow-500/10"
++                      ? "border-primary bg-primary/10"
+                       : "border-border hover:border-muted-foreground"
+                   )}
+                 >
+@@ -773,7 +773,7 @@ export function GeoBlockFields({ initialValues, showModeSelector = true }: GeoBl
+ 
+                   <div className="border-t border-border" />
+ 
+-                  <div className="grid grid-cols-3 gap-4">
++                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                     <div className="col-span-1">
+                       <label className="text-sm font-medium mb-1 block">Status Code</label>
+                       <Input
+diff --git a/src/components/proxy-hosts/LoadBalancerFields.tsx b/src/components/proxy-hosts/LoadBalancerFields.tsx
+index 666eb0f1e9745e3e1d262d866c068028d4881a35..3089e6a813cde0c49435390cb2eddf3374d57c47 100644
+--- a/src/components/proxy-hosts/LoadBalancerFields.tsx
++++ b/src/components/proxy-hosts/LoadBalancerFields.tsx
+@@ -49,7 +49,7 @@ export function LoadBalancerFields({
+           />
+         </div>
+ 
+-        <div className={cn(
++        <div inert={!enabled} className={cn(
+           "overflow-hidden transition-all duration-200",
+           enabled ? "max-h-[3000px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+         )}>
+@@ -73,7 +73,7 @@ export function LoadBalancerFields({
+             </div>
+ 
+             {/* Header-based policy fields */}
+-            <div className={cn(
++            <div inert={!showHeaderField} className={cn(
+               "overflow-hidden transition-all duration-200",
+               showHeaderField ? "max-h-[200px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+             )}>
+@@ -90,7 +90,7 @@ export function LoadBalancerFields({
+             </div>
+ 
+             {/* Cookie-based policy fields */}
+-            <div className={cn(
++            <div inert={!showCookieFields} className={cn(
+               "overflow-hidden transition-all duration-200",
+               showCookieFields ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+             )}>
+@@ -172,7 +172,7 @@ export function LoadBalancerFields({
+                   </div>
+                 </div>
+ 
+-                <div className={cn(
++                <div inert={!activeHealthEnabled} className={cn(
+                   "overflow-hidden transition-all duration-200",
+                   activeHealthEnabled ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+                 )}>
+@@ -234,7 +234,7 @@ export function LoadBalancerFields({
+                   </div>
+                 </div>
+ 
+-                <div className={cn(
++                <div inert={!passiveHealthEnabled} className={cn(
+                   "overflow-hidden transition-all duration-200",
+                   passiveHealthEnabled ? "max-h-[400px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+                 )}>
+diff --git a/src/components/proxy-hosts/LocationLoadBalancerFields.tsx b/src/components/proxy-hosts/LocationLoadBalancerFields.tsx
+index bc89b41b2e4fada377737b5cea0c811730c672e2..eeef660ce27b371facd9a643ebd8e2706f5a1fb8 100644
+--- a/src/components/proxy-hosts/LocationLoadBalancerFields.tsx
++++ b/src/components/proxy-hosts/LocationLoadBalancerFields.tsx
+@@ -69,7 +69,7 @@ export function LocationLoadBalancerFields({ value, onChange }: Props) {
+         <Switch checked={enabled} onCheckedChange={(on) => onChange(on ? { ...(lb ?? EMPTY_LOAD_BALANCER), enabled: true } : null)} />
+       </div>
+ 
+-      <div className={cn("overflow-hidden transition-all duration-200", enabled ? "mt-3 max-h-[3000px] opacity-100" : "max-h-0 opacity-0 pointer-events-none")}>
++      <div inert={!enabled} className={cn("overflow-hidden transition-all duration-200", enabled ? "mt-3 max-h-[3000px] opacity-100" : "max-h-0 opacity-0 pointer-events-none")}>
+         <div className="flex flex-col gap-4">
+           <div>
+             <label className="text-xs font-medium mb-1 block">Selection Policy</label>
+diff --git a/src/components/proxy-hosts/MtlsConfig.tsx b/src/components/proxy-hosts/MtlsConfig.tsx
+index db9f63de9217bb1339221f420912ad351e359c04..c155d21c04157b36e53a1271b6bd2ed77b0eb1d1 100644
+--- a/src/components/proxy-hosts/MtlsConfig.tsx
++++ b/src/components/proxy-hosts/MtlsConfig.tsx
+@@ -114,7 +114,7 @@ export function MtlsFields({ value, caCertificates, issuedClientCerts = [], prox
+         <Switch checked={enabled} onCheckedChange={setEnabled} className="shrink-0" />
+       </div>
+ 
+-      <div className={cn(
++      <div inert={!enabled} className={cn(
+         "overflow-hidden transition-all duration-200",
+         enabled ? "max-h-[4000px] opacity-100 mt-4" : "max-h-0 opacity-0 pointer-events-none"
+       )}>
+diff --git a/src/components/proxy-hosts/UpstreamDnsResolutionFields.tsx b/src/components/proxy-hosts/UpstreamDnsResolutionFields.tsx
+index 92c0aa23d0423bf14095cbd8e483bebb9e69522a..41f6caeec45525d07bee1ffed84351565c526055 100644
+--- a/src/components/proxy-hosts/UpstreamDnsResolutionFields.tsx
++++ b/src/components/proxy-hosts/UpstreamDnsResolutionFields.tsx
+@@ -61,7 +61,7 @@ export function UpstreamDnsResolutionFields({
+           </Button>
+         </div>
+ 
+-        <div className={cn(
++        <div inert={!expanded} className={cn(
+           "overflow-hidden transition-all duration-200",
+           expanded ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+         )}>
+diff --git a/src/components/proxy-hosts/WafFields.tsx b/src/components/proxy-hosts/WafFields.tsx
+index 14965f911ae5942d1118194a564a37109127c868..6ce28f48d4458da491bb2751f585f6b08ee303c8 100644
+--- a/src/components/proxy-hosts/WafFields.tsx
++++ b/src/components/proxy-hosts/WafFields.tsx
+@@ -74,7 +74,7 @@ export function WafFields({ value, showModeSelector = true }: Props) {
+       </div>
+ 
+       {/* Expanded content */}
+-      <div className={cn(
++      <div inert={!enabled} className={cn(
+         "overflow-hidden transition-all duration-200",
+         enabled ? "max-h-[3000px] opacity-100 mt-4" : "max-h-0 opacity-0 pointer-events-none"
+       )}>
+@@ -249,7 +249,7 @@ export function WafFields({ value, showModeSelector = true }: Props) {
+               showTemplates && "rotate-180"
+             )} />
+           </Button>
+-          <div className={cn(
++          <div inert={!showTemplates} className={cn(
+             "overflow-hidden transition-all duration-200",
+             showTemplates ? "max-h-[500px] opacity-100 mt-2" : "max-h-0 opacity-0 pointer-events-none"
+           )}>
+diff --git a/tests/browser/responsive.ts b/tests/browser/responsive.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..7d03d7bc2b21eabbac39f652c854118a09c732c4
+--- /dev/null
++++ b/tests/browser/responsive.ts
+@@ -0,0 +1,74 @@
++/** Run ONLY against a disposable app with the synthetic admin below, never production. */
++import { chromium, expect } from '@playwright/test';
++const base='http://127.0.0.1:3000';
++// A real isolated Caddy is required by settings mutations; no production admin endpoint.
++await Bun.write('/tmp/responsive-caddy.json', JSON.stringify({admin:{listen:'127.0.0.1:2019'}}));
++const caddy=Bun.spawn(['/usr/local/bin/caddy','run','--config','/tmp/responsive-caddy.json'],{stdout:Bun.file('/tmp/responsive-caddy.log'),stderr:Bun.file('/tmp/responsive-caddy.log')});
++for(let i=0;i<100;i++){try{await fetch('http://127.0.0.1:2019/config/');break;}catch{await Bun.sleep(50);}}
++const browser=await chromium.launch({args:['--no-sandbox']});
++const context=await browser.newContext({hasTouch:true,viewport:{width:390,height:844}});
++const page=await context.newPage();
++const failures:string[]=[];let checks=0;
++async function fits(label:string){
++ await page.waitForTimeout(100);
++ const problems=await page.evaluate(()=>{
++  const width=document.documentElement.clientWidth;
++  const bad:string[]=[];
++  if(document.documentElement.scrollWidth>width+1)bad.push(`document ${document.documentElement.scrollWidth}/${width}`);
++  // An element wider than the viewport is allowed only inside a local scrolling region.
++  for(const el of document.querySelectorAll<HTMLElement>('main button, main input, main [role=tablist], [role=dialog] input, [role=dialog] [role=tablist]')){
++   const rect=el.getBoundingClientRect();if(!rect.width||!rect.height)continue;
++   let clipped=false;
++   for(let p=el.parentElement;p&&p!==document.body;p=p.parentElement){if(/auto|scroll/.test(getComputedStyle(p).overflowX)){clipped=true;break;}}
++   if(!clipped&&(rect.right>width+1||rect.left< -1))bad.push(`${el.tagName} ${el.textContent?.slice(0,35)} ${Math.round(rect.right)}`);
++  }
++  return bad.slice(0,12);
++ });
++ expect(await page.locator('body').innerText()).not.toMatch(/[가-힣ぁ-んァ-ヶ一-龥]/);
++ checks++;console.log(label, problems.length ? problems : "OK");if(problems.length)failures.push(`${label}: ${problems.join('; ')}`);
++}
++try{
++ await page.goto(base+'/login');await page.evaluate(()=>document.fonts.ready);expect(await page.evaluate(()=>document.fonts.check('700 24px "TOMORI Display"'))).toBe(true);await page.locator('#username').fill('responsive');await page.locator('#password').fill('MobileFixture!2486');
++ await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.waitForURL(base+'/',{timeout:30000});
++ await page.goto(base+'/access-lists');await page.getByRole('button',{name:'New',exact:true}).click();
++ await page.getByPlaceholder('e.g. Internal — Engineering').fill('Responsive fixture with a long access list name');
++ await page.getByRole('button',{name:'Create list',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);
++ const routes=['/','/proxy-hosts','/l4-proxy-hosts','/access-lists','/groups','/users','/certificates','/waf','/analytics','/audit-log','/api-docs','/settings','/profile','/maintenance'];
++ for(const width of [320,360,390,430,640,768,834,1024,1440]){
++  await page.setViewportSize({width,height:width<834?844:1000});
++  for(const route of routes){
++   await page.goto(base+route);await page.waitForLoadState('domcontentloaded');
++   if(route!='/maintenance'){await expect(page.locator('.dashboard-main')).toBeVisible();await expect(page.locator('.eva-workspace-header')).toContainText('SECTION');await expect(page.locator('.dashboard-main .eva-entry-title')).toHaveCount(0);const navNumber=page.locator('nav a[aria-current=page] .eva-nav-index').first();if(await navNumber.count())await expect(page.locator('.dashboard-main .eva-section-id')).toHaveText((await navNumber.textContent())!);}
++   await fits(`${width} ${route}`);
++  }
++ }
++ await page.setViewportSize({width:320,height:568});await page.goto(base+'/proxy-hosts');
++ await page.getByRole('button',{name:'Open navigation'}).click();await expect(page.getByRole('dialog')).toBeVisible();
++ await page.getByRole('dialog').getByRole('link',{name:'Settings',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);await fits('320 navigation');
++ for(const [route,label] of [['/proxy-hosts','Create Host'],['/l4-proxy-hosts','Create L4 Host']] as const){
++  await page.goto(base+route);const button=page.getByRole('button',{name:label,exact:true});
++  if(await button.count()){
++   await button.click();await expect(page.getByRole('dialog')).toBeVisible();await fits(`320 dialog ${route}`);
++   if(route==='/proxy-hosts'){
++    const geo=page.getByRole('dialog').getByText('Geo Blocking',{exact:true}).locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " rounded-lg ")][1]');
++    await geo.getByRole('switch').first().click();await fits('320 Geo Blocking enabled');
++   }
++   const tabs=page.getByRole('dialog').locator('[role=tab]:not([inert] *)');
++   for(let i=0;i<await tabs.count();i++){await tabs.nth(i).click();await fits(`320 dialog ${route} tab ${i}`);}
++   await page.getByRole('dialog').getByRole('button',{name:'Close',exact:true}).click();
++  }
++ }
++ await page.goto(base+'/settings');
++ await page.setViewportSize({width:844,height:390});await fits('844 landscape settings');await page.setViewportSize({width:320,height:568});
++ const settings=page.getByTestId('mobile-settings-nav').locator('button');
++ for(let i=1;i<await settings.count();i++){await settings.nth(i).click();await fits(`320 settings section ${i}`);}
++ await page.goto(base+'/certificates');
++ const certTabs=page.getByRole('tab');
++ for(let i=0;i<await certTabs.count();i++){await certTabs.nth(i).click();await fits(`320 certificate tab ${i}`);}
++ await page.goto(base+'/');await page.screenshot({path:'/artifacts/dashboard-mobile.png',fullPage:true});
++ await expect(page.locator('html')).toHaveClass(/dark/);await page.getByRole('button',{name:'Toggle theme'}).click();await expect(page.locator('html')).toHaveClass(/light/);await fits('320 light');await page.screenshot({path:'/artifacts/dashboard-mobile-light.png',fullPage:true});await page.getByRole('button',{name:'Toggle theme'}).click();await expect(page.locator('html')).toHaveClass(/dark/);await fits('320 dark');await page.screenshot({path:'/artifacts/dashboard-mobile-dark.png',fullPage:true});
++ await page.setViewportSize({width:1440,height:1000});await page.goto(base+'/');await page.screenshot({path:'/artifacts/dashboard-desktop.png',fullPage:true});
++ const guest=await browser.newContext();const guestPage=await guest.newPage();
++ for(const width of [320,390,768]){await guestPage.setViewportSize({width,height:568});for(const route of ['/login','/portal','/link-account','/maintenance']){await guestPage.goto(base+route);expect(await guestPage.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);checks++;if(width===390&&route==='/login')await guestPage.screenshot({path:'/artifacts/login-mobile.png',fullPage:true});}}
++ console.log(JSON.stringify({checks,failures},null,2));expect(failures).toEqual([]);
++}finally{console.log(JSON.stringify({checks,failures}));await browser.close();caddy.kill();await caddy.exited;}
+diff --git a/tests/runtime/overview-display.test.tsx b/tests/runtime/overview-display.test.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..dfd20f7085efda7ddceef1dd02a7d85141db38c0
+--- /dev/null
++++ b/tests/runtime/overview-display.test.tsx
+@@ -0,0 +1,30 @@
++import { describe, expect, test } from "bun:test";
++import React from "react";
++import { renderToStaticMarkup } from "react-dom/server";
++import OverviewClient from "../../app/(dashboard)/OverviewClient";
++
++const defaults = { userName: "Fixture operator", stats: [], recentEvents: [], isAdmin: true };
++describe("command overview data semantics", () => {
++  test("unavailable and disabled collection do not appear as zero traffic", () => {
++    const unavailable = renderToStaticMarkup(<OverviewClient {...defaults} trafficSummary={null} />);
++    expect(unavailable).toContain("DATA UNAVAILABLE");
++    expect(unavailable).toContain("Blocked ratio unavailable");
++    const disabled = renderToStaticMarkup(<OverviewClient {...defaults} trafficSummary={{ totalRequests: 0, blockedPercent: 0, analyticsDisabled: true }} />);
++    expect(disabled).toContain("COLLECTION DISABLED");
++    expect(disabled).not.toContain("NO REQUESTS RECORDED");
++  });
++  test("an empty sample has no percentage; measured traffic uses its real blocked ratio", () => {
++    const empty = renderToStaticMarkup(<OverviewClient {...defaults} trafficSummary={{ totalRequests: 0, blockedPercent: 0 }} />);
++    expect(empty).toContain("NO REQUESTS RECORDED");
++    expect(empty).toContain("NO RATIO DATA");
++    const measured = renderToStaticMarkup(<OverviewClient {...defaults} trafficSummary={{ totalRequests: 200, blockedPercent: 25 }} />);
++    expect(measured).toContain("25.0 percent blocked");
++    expect(measured).toContain("REQUESTS RECORDED");
++  });
++  test("non-admin overview exposes account navigation without administrative telemetry", () => {
++    const html = renderToStaticMarkup(<OverviewClient {...defaults} isAdmin={false} trafficSummary={null} />);
++    expect(html).toContain('href="/profile"');
++    expect(html).not.toContain('href="/analytics"');
++    expect(html).not.toContain("RESOURCE REGISTRY");
++  });
++});

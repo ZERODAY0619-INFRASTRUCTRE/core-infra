@@ -1,0 +1,255 @@
+From 9e6b639d6d91b16838873828d69a03c70eb2ffb1 Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Fri, 11 Sep 2026 07:00:00 +0000
+Subject: [PATCH 1/9] oauth: synchronize trusted role claims on account updates
+
+Refresh trusted identity-provider role claims after account creation and
+repeat sign-in. Preserve the deployed role synchronization policy and
+its regression checks.
+---
+ src/lib/auth-server.ts                |   3 +
+ src/lib/services/oauth-role-sync.ts   |  69 ++++++++++++++
+ tests/runtime/oauth-role-sync.test.ts | 130 ++++++++++++++++++++++++++
+ 3 files changed, 202 insertions(+)
+ create mode 100644 src/lib/services/oauth-role-sync.ts
+ create mode 100644 tests/runtime/oauth-role-sync.test.ts
+
+diff --git a/src/lib/auth-server.ts b/src/lib/auth-server.ts
+index 7a3b49e2fee377ddc8218b7987ee12fd06c68025..c073a5e8e7db787aa67c54ea49c0310ea8c5f231 100644
+--- a/src/lib/auth-server.ts
++++ b/src/lib/auth-server.ts
+@@ -8,6 +8,7 @@ import { decryptSecret, encryptSecret, isEncryptedSecret } from "./secret";
+ import type { OAuthProvider } from "./models/oauth-providers";
+ import type { GenericOAuthConfig } from "better-auth/plugins";
+ import { resolveOAuthAccountIssuer } from "./account-issuer";
++import { syncOAuthRoleFromClaims } from "./services/oauth-role-sync";
+ 
+ // eslint-disable-next-line @typescript-eslint/no-explicit-any
+ let cachedAuth: any = null;
+@@ -214,6 +215,7 @@ function createAuth(): any {
+             return { data };
+           },
+           after: async (account) => {
++            await syncOAuthRoleFromClaims(account);
+             // Better Auth writes federated identities to the `accounts` table
+             // only. Re-derive the informational users.provider/subject columns
+             // from it so auto-linking, profile linking, and federated sign-up
+@@ -239,6 +241,7 @@ function createAuth(): any {
+             return { data };
+           },
+           after: async (account) => {
++            await syncOAuthRoleFromClaims(account);
+             // Repeat OAuth sign-ins update the existing account row rather than
+             // creating one; keep the projection fresh in that path too.
+             try {
+diff --git a/src/lib/services/oauth-role-sync.ts b/src/lib/services/oauth-role-sync.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f4302d86a3da2374d9b8a3deb8c0855eded56c4b
+--- /dev/null
++++ b/src/lib/services/oauth-role-sync.ts
+@@ -0,0 +1,69 @@
++import db from "../db";
++import { accounts, oauthProviders, users, auditEvents } from "../db/schema";
++import { and, eq } from "drizzle-orm";
++import { config } from "../config";
++import { decryptSecret } from "../secret";
++import { resolveOAuthAccountIssuer } from "../account-issuer";
++
++/** Fetch only from the configured provider, and bind the claim to its subject. */
++export async function fetchOAuthRole(
++  provider: { issuer: string | null; userinfoUrl: string | null },
++  account: { accountId: string; accessToken: string },
++): Promise<"admin" | "user" | "viewer"> {
++  let endpoint = provider.userinfoUrl;
++  if (!endpoint) {
++    if (!provider.issuer) throw new Error("OAuth role sync requires an issuer or UserInfo URL");
++    const response = await fetch(provider.issuer.replace(/\/$/, "") + "/.well-known/openid-configuration", {
++      redirect: "error", signal: AbortSignal.timeout(10_000),
++    });
++    if (!response.ok) throw new Error("OAuth role discovery failed");
++    const discovery = await response.json();
++    endpoint = discovery.userinfo_endpoint;
++    if (!endpoint || new URL(endpoint).origin !== new URL(provider.issuer).origin) {
++      throw new Error("OAuth role discovery returned an unexpected UserInfo origin");
++    }
++  }
++  const response = await fetch(endpoint, {
++    headers: { Authorization: `Bearer ${account.accessToken}` },
++    redirect: "error", signal: AbortSignal.timeout(10_000),
++  });
++  if (!response.ok) throw new Error("OAuth role UserInfo request failed");
++  const profile = await response.json();
++  if (typeof profile.sub !== "string" || profile.sub !== account.accountId) {
++    throw new Error("OAuth role UserInfo subject does not match the authenticated account");
++  }
++  // Missing or unrecognized claims must never preserve an old admin grant.
++  return profile.role === "admin" || profile.role === "viewer" ? profile.role : "user";
++}
++
++/** Runs after OAuth account persistence, before the OAuth callback completes. */
++export async function syncOAuthRoleFromClaims(account: {
++  id: string | number; userId: string | number; providerId: string;
++}): Promise<void> {
++  if (!config.auth.allowOauthRoleFromClaims || account.providerId === "credential") return;
++  const provider = db.select().from(oauthProviders)
++    .where(and(eq(oauthProviders.id, account.providerId), eq(oauthProviders.enabled, true))).get();
++  if (!provider) return;
++  const userId = Number(account.userId);
++  const stored = db.select().from(accounts).where(and(
++    eq(accounts.id, Number(account.id)), eq(accounts.userId, userId),
++    eq(accounts.providerId, provider.id),
++    eq(accounts.issuer, resolveOAuthAccountIssuer(provider.id, provider.issuer)),
++  )).get();
++  if (!stored?.accessToken) throw new Error("OAuth role sync requires a persisted authenticated account");
++  const role = await fetchOAuthRole(provider, {
++    accountId: stored.accountId, accessToken: decryptSecret(stored.accessToken),
++  });
++  db.transaction((tx) => {
++    const user = tx.select().from(users).where(eq(users.id, userId)).get();
++    if (!user) throw new Error("OAuth role sync user is missing");
++    if (user.role === role) return;
++    const now = new Date().toISOString();
++    tx.update(users).set({ role, updatedAt: now }).where(eq(users.id, userId)).run();
++    tx.insert(auditEvents).values({
++      userId, action: "oauth_role_sync", entityType: "user", entityId: userId,
++      summary: `Synced role from OAuth provider ${provider.id}: ${user.role} -> ${role}`,
++      createdAt: now,
++    }).run();
++  });
++}
+diff --git a/tests/runtime/oauth-role-sync.test.ts b/tests/runtime/oauth-role-sync.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1ae3d9c10bc6c2f8ab8ad3929bc1388f54946800
+--- /dev/null
++++ b/tests/runtime/oauth-role-sync.test.ts
+@@ -0,0 +1,130 @@
++import { test, expect, beforeEach, afterAll } from "bun:test";
++import { Database } from "bun:sqlite";
++import { drizzle } from "drizzle-orm/bun-sqlite";
++import { migrate } from "drizzle-orm/bun-sqlite/migrator";
++import * as schema from "../../src/lib/db/schema";
++import { eq } from "drizzle-orm";
++
++// This suite runs in its own Bun process, with an in-memory DB and no production secrets.
++process.env.DATABASE_URL = ":memory:";
++Object.assign(process.env, { NODE_ENV: "test", AUTH_RATE_LIMIT_ENABLED: "false" });
++process.env.SESSION_SECRET = "role-sync-test-secret-at-least-32-characters";
++process.env.AUTH_ALLOW_OAUTH_ROLE_FROM_CLAIMS = "true";
++const sqlite = new Database(":memory:");
++const db = drizzle(sqlite, { schema });
++migrate(db, { migrationsFolder: "drizzle" });
++Object.assign(globalThis, { __DRIZZLE_DB__: db, __SQLITE_CLIENT__: sqlite });
++const { syncOAuthRoleFromClaims, fetchOAuthRole } = await import("../../src/lib/services/oauth-role-sync");
++const { encryptSecret } = await import("../../src/lib/secret");
++const { config } = await import("../../src/lib/config");
++const originalFetch = globalThis.fetch;
++const now = new Date().toISOString();
++let profile: Record<string, unknown>;
++let requests: string[];
++const account = { id: 1, userId: 1, providerId: "authentik" };
++
++beforeEach(() => {
++  sqlite.exec("DELETE FROM audit_events; DELETE FROM accounts; DELETE FROM users; DELETE FROM oauth_providers;");
++  config.auth.allowOauthRoleFromClaims = true;
++  db.insert(schema.users).values({ id: 1, email: "member@example.test", role: "user", status: "active", createdAt: now, updatedAt: now }).run();
++  db.insert(schema.oauthProviders).values({ id: "authentik", name: "Authentik", type: "oidc", clientId: "test", clientSecret: "test", issuer: "https://idp.example/application/o/icpm/", userinfoUrl: "https://idp.example/userinfo", authorizationUrl: "https://idp.example/authorize", tokenUrl: "https://idp.example/token", enabled: true, source: "env", createdAt: now, updatedAt: now }).run();
++  db.insert(schema.accounts).values({ ...account, issuer: "https://idp.example/application/o/icpm/", accountId: "member-sub", accessToken: encryptSecret("test-access-token"), createdAt: now, updatedAt: now }).run();
++  profile = { sub: "member-sub", groups: ["cpm-admins"], role: "admin" };
++  requests = [];
++  globalThis.fetch = (async (url: string | URL | Request, options?: RequestInit) => {
++    requests.push(String(url));
++    expect(options?.redirect).toBe("error");
++    expect(new Headers(options?.headers).get("Authorization")).toBe("Bearer test-access-token");
++    return Response.json(profile);
++  }) as unknown as typeof fetch;
++});
++afterAll(() => { globalThis.fetch = originalFetch; sqlite.close(); });
++const role = () => db.select().from(schema.users).where(eq(schema.users.email, "member@example.test")).get()!.role;
++
++test("authenticated cpm-admins role promotes existing account and audits the change", async () => {
++  await syncOAuthRoleFromClaims(account);
++  expect(role()).toBe("admin");
++  expect(db.select().from(schema.auditEvents).all()).toHaveLength(1);
++  await syncOAuthRoleFromClaims(account);
++  expect(db.select().from(schema.auditEvents).all()).toHaveLength(1);
++});
++test("later login demotes when Authentik removes admin role", async () => {
++  await syncOAuthRoleFromClaims(account);
++  profile = { sub: "member-sub", groups: [], role: "user" };
++  await syncOAuthRoleFromClaims(account);
++  expect(role()).toBe("user");
++});
++test("missing or invalid role cannot preserve admin", async () => {
++  for (const value of [undefined, "superadmin", ["admin"]]) {
++    db.update(schema.users).set({ role: "admin" }).run();
++    profile = { sub: "member-sub", role: value };
++    await syncOAuthRoleFromClaims(account);
++    expect(role()).toBe("user");
++  }
++});
++test("subject mismatch cannot grant a role", async () => {
++  profile.sub = "another-user";
++  await expect(syncOAuthRoleFromClaims(account)).rejects.toThrow("subject");
++  expect(role()).toBe("user");
++});
++test("disabled opt-in and credentials do not query provider or change roles", async () => {
++  config.auth.allowOauthRoleFromClaims = false;
++  await syncOAuthRoleFromClaims(account);
++  config.auth.allowOauthRoleFromClaims = true;
++  await syncOAuthRoleFromClaims({ ...account, providerId: "credential" });
++  expect(requests).toHaveLength(0);
++  expect(role()).toBe("user");
++});
++test("wrong account binding is rejected before using a token", async () => {
++  await expect(syncOAuthRoleFromClaims({ ...account, userId: 99 })).rejects.toThrow("persisted");
++  expect(requests).toHaveLength(0);
++});
++test("provider errors do not grant admin", async () => {
++  globalThis.fetch = (async () => new Response(null, { status: 401 })) as unknown as typeof fetch;
++  await expect(syncOAuthRoleFromClaims(account)).rejects.toThrow("UserInfo");
++  expect(role()).toBe("user");
++});
++test("discovery cannot redirect bearer token to a different origin", async () => {
++  globalThis.fetch = (async () => Response.json({ userinfo_endpoint: "https://other.example/userinfo" })) as unknown as typeof fetch;
++  await expect(fetchOAuthRole({ issuer: "https://idp.example", userinfoUrl: null }, { accountId: "member-sub", accessToken: "test-access-token" })).rejects.toThrow("origin");
++});
++
++test("real OAuth callbacks sync new and existing accounts and expose the fresh role in session", async () => {
++  const { getAuth, invalidateProviderCache } = await import("../../src/lib/auth-server");
++  config.auth.allowOauthRegistration = true;
++  invalidateProviderCache();
++  const auth = getAuth();
++  const base = config.baseUrl;
++  globalThis.fetch = (async (url: string | URL | Request) => {
++    const target = String(url);
++    if (target === "https://idp.example/token") {
++      return Response.json({ access_token: "test-access-token", token_type: "Bearer", expires_in: 300 });
++    }
++    if (target === "https://idp.example/userinfo") {
++      return Response.json({ ...profile, id: profile.sub, email: "member@example.test", email_verified: true, name: "Member" });
++    }
++    throw new Error(`Unexpected test network request: ${target}`);
++  }) as unknown as typeof fetch;
++  for (const mode of ["existing", "new"]) {
++  if (mode === "new") sqlite.exec("DELETE FROM sessions; DELETE FROM audit_events; DELETE FROM accounts; DELETE FROM users;");
++  for (const expectedRole of ["admin", "user"]) {
++    profile = { sub: "member-sub", role: expectedRole, groups: expectedRole === "admin" ? ["cpm-admins"] : [] };
++    const start = await auth.handler(new Request(`${base}/api/auth/sign-in/social`, {
++      method: "POST", headers: { "Content-Type": "application/json", Origin: base },
++      body: JSON.stringify({ provider: "authentik", callbackURL: `${base}/` }),
++    }));
++    expect(start.status).toBe(200);
++    const authUrl = new URL((await start.json()).url);
++    const cookies = start.headers.getSetCookie().map((v: string) => v.split(";")[0]).join("; ");
++    const callback = await auth.handler(new Request(`${base}/api/auth/callback/authentik?code=test-code&state=${encodeURIComponent(authUrl.searchParams.get("state")!)}`, {
++      headers: { Cookie: cookies },
++    }));
++    expect(callback.status).toBe(302);
++    expect(callback.headers.get("location")).not.toContain("error");
++    expect(role()).toBe(expectedRole);
++    const sessionCookies = callback.headers.getSetCookie().map((v: string) => v.split(";")[0]).join("; ");
++    const session = await auth.handler(new Request(`${base}/api/auth/get-session`, { headers: { Cookie: sessionCookies } }));
++    expect((await session.json()).user.role).toBe(expectedRole);
++  }
++  }
++});

@@ -1,0 +1,253 @@
+From 6f5acb6e1cac635015db2c78cfdd38eab831d7de Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Fri, 11 Sep 2026 07:00:02 +0000
+Subject: [PATCH 3/9] auth: validate proxy authentication inputs and transports
+
+Preserve the deployed forward-auth flow and shared Authentik transport
+helper. Reject ambiguous scoped-mTLS combinations and invalid outpost
+namespaces. Carry the related authentication regression cases.
+---
+ app/api/forward-auth/callback/route.ts        |  6 +++++
+ app/api/forward-auth/login/route.ts           | 17 +++++++++-----
+ app/api/forward-auth/session-login/route.ts   |  8 +++++--
+ src/lib/caddy-authentik.ts                    | 15 +++++++++++++
+ src/lib/models/proxy-hosts.ts                 |  9 ++++++++
+ .../integration/forward-auth-audience.test.ts | 18 ++++++++++-----
+ tests/runtime/authentik-upstream.ts           | 22 +++++++++++++++++++
+ 7 files changed, 82 insertions(+), 13 deletions(-)
+ create mode 100644 src/lib/caddy-authentik.ts
+ create mode 100644 tests/runtime/authentik-upstream.ts
+
+diff --git a/app/api/forward-auth/callback/route.ts b/app/api/forward-auth/callback/route.ts
+index 4a3bfd73e4e91c3c04d06a0f0700139b7b1dbd40..a522a1584f9a670321decf2d87cdfe93d6fdf29e 100644
+--- a/app/api/forward-auth/callback/route.ts
++++ b/app/api/forward-auth/callback/route.ts
+@@ -14,6 +14,11 @@ const COOKIE_MAX_AGE = 7 * 24 * 60 * 60; // 7 days
+  */
+ export async function GET(request: NextRequest) {
+   const code = request.nextUrl.searchParams.get("code");
++  const nonce = request.nextUrl.searchParams.get("nonce");
++  const expectedNonce = request.cookies.get("_cpm_fa_nonce")?.value;
++  if (!nonce || !expectedNonce || nonce.length != 64 || nonce !== expectedNonce) {
++    return new NextResponse("Invalid browser login state", { status: 401 });
++  }
+   if (!code) {
+     return new NextResponse("Missing code parameter", { status: 400 });
+   }
+@@ -42,6 +47,7 @@ export async function GET(request: NextRequest) {
+   // Redirect back to original URL with the session cookie set
+   const response = NextResponse.redirect(result.redirectUri, 302);
+ 
++  response.cookies.delete("_cpm_fa_nonce");
+   response.cookies.set(COOKIE_NAME, result.rawSessionToken, {
+     path: "/",
+     httpOnly: true,
+diff --git a/app/api/forward-auth/login/route.ts b/app/api/forward-auth/login/route.ts
+index a9f153677d3808f84bddeae3a7cdbb891edf2f58..d4b8157b80a8c57be43138a4447016a2bbcdd43f 100644
+--- a/app/api/forward-auth/login/route.ts
++++ b/app/api/forward-auth/login/route.ts
+@@ -1,5 +1,6 @@
+ import { NextRequest, NextResponse } from "next/server";
+ import bcrypt from "bcryptjs";
++import { randomBytes } from "node:crypto";
+ import db from "@/src/lib/db";
+ import { config } from "@/src/lib/config";
+ import {
+@@ -41,7 +42,8 @@ export async function POST(request: NextRequest) {
+       request.headers.get("x-real-ip")?.trim() ||
+       request.headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
+       "unknown";
+-    const rateLimitResult = isRateLimited(ip);
++    const rateLimitKey = `account:${username.toLowerCase()}`;
++    const rateLimitResult = isRateLimited(rateLimitKey);
+     if (rateLimitResult.blocked) {
+       return NextResponse.json(
+         { error: "Too many login attempts. Please try again later." },
+@@ -56,7 +58,7 @@ export async function POST(request: NextRequest) {
+     });
+ 
+     if (!user || user.status !== "active" || !user.passwordHash) {
+-      registerFailedAttempt(ip);
++      registerFailedAttempt(rateLimitKey);
+       logAuditEvent({
+         userId: null,
+         action: "forward_auth_login_failed",
+@@ -68,7 +70,7 @@ export async function POST(request: NextRequest) {
+ 
+     const isValid = await bcrypt.compare(password, user.passwordHash);
+     if (!isValid) {
+-      registerFailedAttempt(ip);
++      registerFailedAttempt(rateLimitKey);
+       logAuditEvent({
+         userId: user.id,
+         action: "forward_auth_login_failed",
+@@ -80,7 +82,7 @@ export async function POST(request: NextRequest) {
+     }
+ 
+     // Successful credential check — reset rate limiter for this IP
+-    resetAttempts(ip);
++    resetAttempts(rateLimitKey);
+ 
+     // Consume the redirect intent — returns the server-stored redirect URI.
+     // This is a one-time operation: the intent is deleted after consumption.
+@@ -127,8 +129,11 @@ export async function POST(request: NextRequest) {
+     // Build callback URL on the target domain
+     const callbackUrl = new URL("/.cpm-auth/callback", intent.audience.origin);
+     callbackUrl.searchParams.set("code", rawCode);
+-
+-    return NextResponse.json({ redirectTo: callbackUrl.toString() });
++    const browserNonce = randomBytes(32).toString("hex");
++    callbackUrl.searchParams.set("nonce", browserNonce);
++    const response = NextResponse.json({ redirectTo: callbackUrl.toString() });
++    response.cookies.set("_cpm_fa_nonce", browserNonce, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 300 });
++    return response;
+   } catch (error) {
+     console.error("Forward auth login error:", error);
+     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+diff --git a/app/api/forward-auth/session-login/route.ts b/app/api/forward-auth/session-login/route.ts
+index a5065d7579a26349d115c9f308ba67a150415a82..ce24d7f27daeb6f2dcb3a1d712c7c1a162966093 100644
+--- a/app/api/forward-auth/session-login/route.ts
++++ b/app/api/forward-auth/session-login/route.ts
+@@ -1,4 +1,5 @@
+ import { NextRequest, NextResponse } from "next/server";
++import { randomBytes } from "node:crypto";
+ import { auth } from "@/src/lib/auth";
+ import { config } from "@/src/lib/config";
+ import {
+@@ -77,8 +78,11 @@ export async function POST(request: NextRequest) {
+ 
+     const callbackUrl = new URL("/.cpm-auth/callback", intent.audience.origin);
+     callbackUrl.searchParams.set("code", rawCode);
+-
+-    return NextResponse.json({ redirectTo: callbackUrl.toString() });
++    const browserNonce = randomBytes(32).toString("hex");
++    callbackUrl.searchParams.set("nonce", browserNonce);
++    const response = NextResponse.json({ redirectTo: callbackUrl.toString() });
++    response.cookies.set("_cpm_fa_nonce", browserNonce, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 300 });
++    return response;
+   } catch (error) {
+     console.error("Forward auth session login error:", error);
+     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+diff --git a/src/lib/caddy-authentik.ts b/src/lib/caddy-authentik.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..c16d050752e3e871d0e2396269f85f5f74a054c1
+--- /dev/null
++++ b/src/lib/caddy-authentik.ts
+@@ -0,0 +1,15 @@
++import { parseUpstreamTarget } from "./caddy-utils";
++
++/** Shared transport for authentication checks and browser outpost requests. */
++export function buildAuthentikUpstream(upstream: string) {
++  const target = parseUpstreamTarget(upstream);
++  return {
++    upstreams: [{ dial: target.dial }],
++    ...(target.scheme === "https" ? {
++      transport: {
++        protocol: "http",
++        tls: { server_name: target.host!.replace(/^\[|\]$/g, "") },
++      },
++    } : {}),
++  };
++}
+diff --git a/src/lib/models/proxy-hosts.ts b/src/lib/models/proxy-hosts.ts
+index 5942cdcdd1427cf37134c06cb3d5a9f5563ae15e..f2b2ef1c55223c18d36a7272c0e37013cd3eee79 100644
+--- a/src/lib/models/proxy-hosts.ts
++++ b/src/lib/models/proxy-hosts.ts
+@@ -869,6 +869,11 @@ function serializeMeta(meta: ProxyHostMeta | null | undefined) {
+     }
+   }
+ 
++  const scopedMtls = Boolean(normalized.mtls?.protected_paths?.length || normalized.mtls?.excluded_paths?.length);
++  if (scopedMtls && normalized.cpm_forward_auth?.enabled) {
++    throw new ApiValidationError("Scoped mTLS cannot be combined with forward authentication until both checks are composed");
++  }
++
+   return Object.keys(normalized).length > 0 ? JSON.stringify(normalized) : null;
+ }
+ 
+@@ -1184,6 +1189,10 @@ function normalizeAuthentikInput(
+     }
+   }
+ 
++  if (next.enabled && next.outpost_domain && /[:/\s{}]/.test(next.outpost_domain)) {
++    throw new Error("Outpost Domain must be a path namespace such as outpost.goauthentik.io, not an SSO URL. Put the server URL in Outpost Upstream URL.");
++  }
++
+   if ((next.enabled ?? false) && next.outpost_domain && !next.auth_endpoint) {
+     next.auth_endpoint = `/${next.outpost_domain}/auth/caddy`;
+   }
+diff --git a/tests/integration/forward-auth-audience.test.ts b/tests/integration/forward-auth-audience.test.ts
+index f8b213e2686e663a180ccdde834b397fb8952875..a7ff0d1f95e058c5e8af92f33fc0aaac4e0a3417 100644
+--- a/tests/integration/forward-auth-audience.test.ts
++++ b/tests/integration/forward-auth-audience.test.ts
+@@ -200,15 +200,23 @@ describe('forward-auth exact audience binding', () => {
+   });
+ });
+ 
++const browserNonce = 'a'.repeat(64);
++function browserHeaders(origin: string): Headers {
++  const headers = new Headers(proxyHeaders(origin));
++  headers.set('cookie', `_cpm_fa_nonce=${browserNonce}`);
++  return headers;
++}
++
+ describe('trusted Caddy callback boundary', () => {
+   it('rejects direct-origin requests even when forwarded host/protocol are forged', async () => {
+     const { user } = await setupAuthorizedWildcard();
+     const { rawCode } = await createCode(user.id, 'https://private.example.com/');
+ 
+-    const directRequest = new NextRequest(`http://localhost:3000/api/forward-auth/callback?code=${rawCode}`, {
++    const directRequest = new NextRequest(`http://localhost:3000/api/forward-auth/callback?code=${rawCode}&nonce=${browserNonce}`, {
+       headers: {
+         'x-forwarded-proto': 'https',
+         'x-forwarded-host': 'private.example.com',
++        cookie: `_cpm_fa_nonce=${browserNonce}`,
+       },
+     });
+     const response = await forwardAuthCallback(directRequest);
+@@ -223,13 +231,13 @@ describe('trusted Caddy callback boundary', () => {
+     const target = 'https://private.example.com/dashboard';
+     const { rawCode } = await createCode(user.id, target);
+ 
+-    const attackerRequest = new NextRequest(`http://localhost/api/forward-auth/callback?code=${rawCode}`, {
+-      headers: proxyHeaders('https://evil.example.com'),
++    const attackerRequest = new NextRequest(`http://localhost/api/forward-auth/callback?code=${rawCode}&nonce=${browserNonce}`, {
++      headers: browserHeaders('https://evil.example.com'),
+     });
+     expect((await forwardAuthCallback(attackerRequest)).status).toBe(401);
+ 
+-    const legitimateRequest = new NextRequest(`http://localhost/api/forward-auth/callback?code=${rawCode}`, {
+-      headers: proxyHeaders('https://private.example.com'),
++    const legitimateRequest = new NextRequest(`http://localhost/api/forward-auth/callback?code=${rawCode}&nonce=${browserNonce}`, {
++      headers: browserHeaders('https://private.example.com'),
+     });
+     const response = await forwardAuthCallback(legitimateRequest);
+     expect(response.status).toBe(302);
+diff --git a/tests/runtime/authentik-upstream.ts b/tests/runtime/authentik-upstream.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..5d06c9554c4118187b3b5cb7533663065c097519
+--- /dev/null
++++ b/tests/runtime/authentik-upstream.ts
+@@ -0,0 +1,22 @@
++import assert from "node:assert/strict";
++import { buildAuthentikUpstream } from "../../src/lib/caddy-authentik";
++
++assert.deepEqual(buildAuthentikUpstream("https://sso.example.com"), {
++  upstreams: [{ dial: "sso.example.com:443" }],
++  transport: { protocol: "http", tls: { server_name: "sso.example.com" } },
++});
++assert.deepEqual(buildAuthentikUpstream("https://sso.example.com:9443/"), {
++  upstreams: [{ dial: "sso.example.com:9443" }],
++  transport: { protocol: "http", tls: { server_name: "sso.example.com" } },
++});
++assert.deepEqual(buildAuthentikUpstream("http://authentik-server:9000"), {
++  upstreams: [{ dial: "authentik-server:9000" }],
++});
++assert.deepEqual(buildAuthentikUpstream("authentik-server:9000"), {
++  upstreams: [{ dial: "authentik-server:9000" }],
++});
++assert.deepEqual(buildAuthentikUpstream("https://[::1]:9443"), {
++  upstreams: [{ dial: "[::1]:9443" }],
++  transport: { protocol: "http", tls: { server_name: "::1" } },
++});
++console.log("PASS: Authentik HTTP/HTTPS ports, TLS identity, and IPv6");

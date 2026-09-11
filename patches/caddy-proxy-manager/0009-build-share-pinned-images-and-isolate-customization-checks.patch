@@ -1,0 +1,349 @@
+From deabbb607ba92cfc14f93eadbc1cec262245e422 Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Fri, 11 Sep 2026 07:00:08 +0000
+Subject: [PATCH 9/9] build: share pinned images and isolate customization
+ checks
+
+Build common images for both profiles and forward the compatibility
+gRPC pin to xcaddy. Preserve dependency cache layers and the supported
+Node runtime. Archive upstream automation and define custom checks.
+---
+ .dockerignore                                 |  3 +
+ .../caddy-compatibility-pins.yml              | 77 +++++++++++++++++++
+ .../dependabot-automerge.yml                  |  0
+ .../docker-build-pr.yml                       |  0
+ .../docker-build-trusted.yml                  |  0
+ .../stale.yml                                 |  0
+ .../test.yml                                  |  0
+ .../workflows/caddy-compatibility-pins.yml    |  2 +
+ .github/workflows/custom-ci.yml               | 24 ++++++
+ .nvmrc                                        |  1 +
+ CUSTOMIZATIONS.md                             | 28 +++++++
+ docker/caddy/Dockerfile                       |  4 +-
+ docker/caddy/build.sh                         |  5 ++
+ docker/web/Dockerfile                         | 24 ++++--
+ package.json                                  |  2 +-
+ scripts/test-custom.sh                        |  9 +++
+ 16 files changed, 171 insertions(+), 8 deletions(-)
+ create mode 100644 .github/upstream-workflows/caddy-compatibility-pins.yml
+ rename .github/{workflows => upstream-workflows}/dependabot-automerge.yml (100%)
+ rename .github/{workflows => upstream-workflows}/docker-build-pr.yml (100%)
+ rename .github/{workflows => upstream-workflows}/docker-build-trusted.yml (100%)
+ rename .github/{workflows => upstream-workflows}/stale.yml (100%)
+ rename .github/{workflows => upstream-workflows}/test.yml (100%)
+ create mode 100644 .github/workflows/custom-ci.yml
+ create mode 100644 .nvmrc
+ create mode 100644 CUSTOMIZATIONS.md
+ create mode 100755 scripts/test-custom.sh
+
+diff --git a/.dockerignore b/.dockerignore
+index cc0b738b96cfd7ed0fbeff91fb1ecde474bc0a1a..d194c297cd6b8c6acb5a2b44e9e5c93bb1629797 100644
+--- a/.dockerignore
++++ b/.dockerignore
+@@ -55,3 +55,6 @@ docker-compose.*.yml
+ # host by next dev/build (potentially from a different maplibre-gl version) must
+ # not leak into the image via COPY . .
+ public/maplibre
++
++# Local incremental compiler metadata
++*.tsbuildinfo
+diff --git a/.github/upstream-workflows/caddy-compatibility-pins.yml b/.github/upstream-workflows/caddy-compatibility-pins.yml
+new file mode 100644
+index 0000000000000000000000000000000000000000..d32bb52fa7f88fdacaf9f1681df5ade09283929c
+--- /dev/null
++++ b/.github/upstream-workflows/caddy-compatibility-pins.yml
+@@ -0,0 +1,77 @@
++name: Refresh Caddy compatibility pins
++
++on:
++  schedule:
++    - cron: "17 5 * * 1"
++  workflow_dispatch:
++
++permissions:
++  contents: write
++  pull-requests: write
++
++jobs:
++  update:
++    runs-on: ubuntu-latest
++    steps:
++      - name: Check out repository
++        uses: actions/checkout@v7
++
++      - name: Set up Go
++        uses: actions/setup-go@v7
++        with:
++          go-version-file: docker/caddy/go.mod
++
++      - name: Refresh Caddy compatibility replacement
++        run: sh docker/caddy/update-compatibility-pins.sh
++
++      - name: Detect changes
++        id: changes
++        run: |
++          if git diff --quiet -- docker/caddy/go.mod docker/caddy/go.sum; then
++            echo "changed=false" >> "$GITHUB_OUTPUT"
++          else
++            echo "changed=true" >> "$GITHUB_OUTPUT"
++          fi
++
++      # Build the Caddy Dockerfile directly instead of `docker compose build caddy`:
++      # Compose interpolates variables for ALL services before building, and
++      # docker-compose.yml declares hard-required vars (SESSION_SECRET,
++      # ADMIN_USERNAME, ADMIN_PASSWORD, CLICKHOUSE_PASSWORD) that are unset in
++      # CI, so compose always failed here regardless of the caddy service. The
++      # Dockerfile re-runs update-compatibility-pins.sh inside the build, so
++      # this still end-to-end verifies the refreshed pins. Mirrors the caddy
++      # job of docker-build-pr.yml (same Dockerfile, same GHA cache scope).
++      - name: Set up Docker Buildx
++        if: steps.changes.outputs.changed == 'true'
++        uses: docker/setup-buildx-action@v4
++
++      - name: Verify updated Caddy image
++        if: steps.changes.outputs.changed == 'true'
++        uses: docker/build-push-action@v7
++        with:
++          context: .
++          file: docker/caddy/Dockerfile
++          push: false
++          platforms: linux/amd64
++          cache-from: type=gha,scope=caddy
++
++      - name: Open compatibility-pin pull request
++        if: steps.changes.outputs.changed == 'true'
++        env:
++          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
++          BASE_BRANCH: ${{ github.event.repository.default_branch }}
++        run: |
++          branch="automation/caddy-compatibility-pins"
++          git config user.name "github-actions[bot]"
++          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
++          git switch -C "$branch"
++          git add docker/caddy/go.mod docker/caddy/go.sum
++          git commit -m "caddy: refresh compatibility pins"
++          git push --force origin "$branch"
++          if ! gh pr list --head "$branch" --state open --json number --jq '.[0].number' | grep -q '[0-9]'; then
++            gh pr create \
++              --base "$BASE_BRANCH" \
++              --head "$branch" \
++              --title "caddy: refresh compatibility pins" \
++              --body "Automated compatibility-pin refresh derived from the pinned Caddy module. The Caddy image build passed before this PR was opened."
++          fi
+diff --git a/.github/workflows/dependabot-automerge.yml b/.github/upstream-workflows/dependabot-automerge.yml
+similarity index 100%
+rename from .github/workflows/dependabot-automerge.yml
+rename to .github/upstream-workflows/dependabot-automerge.yml
+diff --git a/.github/workflows/docker-build-pr.yml b/.github/upstream-workflows/docker-build-pr.yml
+similarity index 100%
+rename from .github/workflows/docker-build-pr.yml
+rename to .github/upstream-workflows/docker-build-pr.yml
+diff --git a/.github/workflows/docker-build-trusted.yml b/.github/upstream-workflows/docker-build-trusted.yml
+similarity index 100%
+rename from .github/workflows/docker-build-trusted.yml
+rename to .github/upstream-workflows/docker-build-trusted.yml
+diff --git a/.github/workflows/stale.yml b/.github/upstream-workflows/stale.yml
+similarity index 100%
+rename from .github/workflows/stale.yml
+rename to .github/upstream-workflows/stale.yml
+diff --git a/.github/workflows/test.yml b/.github/upstream-workflows/test.yml
+similarity index 100%
+rename from .github/workflows/test.yml
+rename to .github/upstream-workflows/test.yml
+diff --git a/.github/workflows/caddy-compatibility-pins.yml b/.github/workflows/caddy-compatibility-pins.yml
+index d32bb52fa7f88fdacaf9f1681df5ade09283929c..14a40e890bc6a433e0752867e13954cc5fe86440 100644
+--- a/.github/workflows/caddy-compatibility-pins.yml
++++ b/.github/workflows/caddy-compatibility-pins.yml
+@@ -11,6 +11,8 @@ permissions:
+ 
+ jobs:
+   update:
++    # Retained at the upstream path for build-contract tests. Enable deliberately in the fork.
++    if: false
+     runs-on: ubuntu-latest
+     steps:
+       - name: Check out repository
+diff --git a/.github/workflows/custom-ci.yml b/.github/workflows/custom-ci.yml
+new file mode 100644
+index 0000000000000000000000000000000000000000..e11053df489461bcdbf71745db08dc3b7d7de069
+--- /dev/null
++++ b/.github/workflows/custom-ci.yml
+@@ -0,0 +1,24 @@
++name: Custom app checks
++on: [push, pull_request]
++permissions:
++  contents: read
++jobs:
++  test:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-node@v4
++        with:
++          node-version: '24'
++      - uses: oven-sh/setup-bun@v2
++        with:
++          bun-version: '1.4.2'
++      - run: bun install --frozen-lockfile --ignore-scripts
++      - run: bun run test --maxWorkers=1
++      - run: sh scripts/test-custom.sh
++      - run: bun run typecheck
++      - run: bun --bun run build
++        env:
++          DATABASE_URL: 'file:/tmp/cpm-ci.db'
++          DATABASE_PATH: /tmp/cpm-ci.db
++          NEXT_TELEMETRY_DISABLED: '1'
+diff --git a/.nvmrc b/.nvmrc
+new file mode 100644
+index 0000000000000000000000000000000000000000..a45fd52cc5891570d6299fab38643103c3955474
+--- /dev/null
++++ b/.nvmrc
+@@ -0,0 +1 @@
++24
+diff --git a/CUSTOMIZATIONS.md b/CUSTOMIZATIONS.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..f636e93c8a81df2e0ddbd90f483f7c4971e04669
+--- /dev/null
++++ b/CUSTOMIZATIONS.md
+@@ -0,0 +1,28 @@
++# TOMORI 공통 앱
++
++ICPM과 PCPM은 이 소스의 동일한 웹/Caddy 이미지를 사용한다. 배포 설정은 별도 infra 저장소에 둔다.
++원본 기준: v1.11.2 / 7e5791750e5f6bbd8444ed62c680b8df8ed7c05d.
++원본 저장소: https://github.com/fuomag9/caddy-proxy-manager.git
++기존 공통 앱 기준: f125793470bf99f19439018edf2a272ebffc4b65 (이전 PCPM HEAD).
++기존 ICPM 기준 f6ff473ac19c5fdb7ab85d5c74588b7263330ff9는 이 커밋의 조상이다.
++
++- 공통: TOMORI UI, 상태/점검 화면, 오류 피드백, OAuth 역할 동기화, 분석/GeoIP, Authentik HTTP/HTTPS 포트·TLS 수정.
++- PCPM 전용: ANUBIS_PROTECTED_DOMAIN을 지정한 경우 Anubis 경로를 생성한다.
++- ICPM: ANUBIS_PROTECTED_DOMAIN을 빈 값으로 지정한다. Anubis 경로는 생성하지 않는다.
++- CPM_EDGE_LABEL, CPM_FEEDBACK_UPSTREAM, BASE_URL, OAUTH_ISSUER는 런타임 인스턴스 설정이다.
++
++기존 내부 앱에도 외부 앱의 Authentik 수정 및 최신 의존성/Caddy pin이 적용된다.
++이 변경은 운영 전환 전 두 인스턴스 인증 흐름을 점검해야 한다.
++
++원본 갱신은 별도 update 브랜치에서 upstream 커밋을 병합하고 검증한다.
++custom/main의 커스텀 이력은 보존한다. upstream에는 push하지 않는다.
++빌드/배포 방법과 버전 고정은 infra 저장소 docs/UPDATE.ko.md를 따른다.
++
++검증 런타임은 Bun 1.4.2, Node 24다. Vitest 5와 better-sqlite3 13의 Node 요구조건을 준수한다.
++웹 빌드는 `bun --bun run build`로 실행해 운영 Bun SQLite 경로를 검증한다.
++
++`package.json`의 version은 통합한 upstream 릴리스에 맞춘다. 기본 웹 빌드는 v1.11.2를 표시하며,
++infra 이미지 빌드는 `1.11.2+tomori.<commit>`을 전달해 커스텀 빌드를 구분한다.
++
++v1.11.2의 gRPC pin은 xcaddy에 명시적 replacement로 전달한다. xcaddy의 새 임시 모듈에서
++go.mod의 간접 의존성 pin이 누락되어 이전 gRPC가 선택되는 것을 방지한다.
+diff --git a/docker/caddy/Dockerfile b/docker/caddy/Dockerfile
+index 89ec47f89eb4319f087c5c3f161fc58898cff2d9..23c50be2ee90d691e881e93c6514f14592f881c0 100644
+--- a/docker/caddy/Dockerfile
++++ b/docker/caddy/Dockerfile
+@@ -10,7 +10,7 @@ ARG TARGETOS
+ ARG TARGETARCH
+ 
+ WORKDIR /build
+-COPY docker/caddy/go.mod docker/caddy/go.sum docker/caddy/build.sh docker/caddy/update-compatibility-pins.sh ./
++COPY docker/caddy/go.mod docker/caddy/go.sum docker/caddy/update-compatibility-pins.sh ./
+ 
+ # Every module version comes from go.mod. Dependabot updates that file weekly;
+ # the compatibility updater derives cel-go from the pinned Caddy release, and
+@@ -18,6 +18,8 @@ COPY docker/caddy/go.mod docker/caddy/go.sum docker/caddy/build.sh docker/caddy/
+ RUN sh ./update-compatibility-pins.sh
+ RUN XCADDY_VERSION="$(go list -m -f '{{.Version}}' github.com/caddyserver/xcaddy)" && \
+     go install github.com/caddyserver/xcaddy/cmd/xcaddy@"${XCADDY_VERSION}"
++# Build-script changes reuse the resolved modules and xcaddy installation above.
++COPY docker/caddy/build.sh ./
+ RUN sh ./build.sh
+ 
+ FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
+diff --git a/docker/caddy/build.sh b/docker/caddy/build.sh
+index f9d5873a0a01558deae49487d58181ae5ef7a2b7..24a405fd9662b31a7b1a7ecbabc5178070e229e2 100644
+--- a/docker/caddy/build.sh
++++ b/docker/caddy/build.sh
+@@ -45,4 +45,9 @@ MODULES
+ cel_go_version="$(module_version github.com/google/cel-go)"
+ set -- "$@" --replace "github.com/google/cel-go=github.com/google/cel-go@$cel_go_version"
+ 
++# xcaddy creates a new module, so an indirect go.mod pin is not inherited.
++# Preserve the reviewed gRPC version instead of taking a plugin's older minimum.
++grpc_version="$(module_version google.golang.org/grpc)"
++set -- "$@" --replace "google.golang.org/grpc=google.golang.org/grpc@$grpc_version"
++
+ GOOS="$TARGETOS" GOARCH="$TARGETARCH" xcaddy build "$@" --output /usr/bin/caddy
+diff --git a/docker/web/Dockerfile b/docker/web/Dockerfile
+index fb3edce24e2fac65b43b36db28d060d2cdf1503d..37157b23fca468b2824d3d702ae8647b145caa9d 100644
+--- a/docker/web/Dockerfile
++++ b/docker/web/Dockerfile
+@@ -11,9 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
+ COPY package.json bun.lock ./
+ # --ignore-scripts skips native addon compilation (better-sqlite3 is a test-only devDep;
+ # production uses bun's built-in bun:sqlite which needs no compilation)
+-RUN bun install --frozen-lockfile --ignore-scripts
++RUN --mount=type=cache,id=cpm-bun-install,target=/root/.bun/install/cache,sharing=locked \
++    bun install --frozen-lockfile --ignore-scripts
+ 
+-FROM base AS builder
++FROM deps AS builder
+ ENV NODE_ENV=production
+ ENV NEXT_TELEMETRY_DISABLED=1
+ ENV DATABASE_PATH=/tmp/build.db
+@@ -22,9 +23,20 @@ ENV DATABASE_URL=file:/tmp/build.db
+ # Set by CI to the git tag (without the leading v) for release builds; when
+ # unset, next.config.mjs falls back to the package.json version.
+ ARG APP_VERSION
+-COPY --from=deps /app/node_modules ./node_modules
+-COPY . .
+-RUN bun run build && rm -f /tmp/build.db
++# Copy only web build inputs. Documentation, CI and Caddy changes do not
++# invalidate the application build. Tests remain included for TypeScript checks.
++COPY package.json bun.lock next.config.mjs next-env.d.ts postcss.config.mjs tsconfig.json proxy.ts drizzle.config.ts ./
++COPY app ./app
++COPY src ./src
++COPY public ./public
++COPY scripts ./scripts
++COPY tests ./tests
++COPY drizzle ./drizzle
++# Share the web build for both runtime profiles; persist Turbopack and
++# Next.js incremental TypeScript data without shipping the cache in the image.
++ARG BUILD_CACHE_SCOPE=shared
++RUN --mount=type=cache,id=cpm-next-${BUILD_CACHE_SCOPE},target=/app/.next/cache,sharing=locked \
++    bun run build && rm -f /tmp/build.db /tmp/build.db-shm /tmp/build.db-wal
+ 
+ FROM base AS runner
+ ARG PUID=10001
+@@ -49,7 +61,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/server/instrumentation ./.n
+ COPY --from=builder --chown=nextjs:nodejs /app/.next/server/chunks/ ./.next/server/chunks/
+ COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
+ 
+-RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
++RUN mkdir -p /app/data /app/feedback && chown -R nextjs:nodejs /app/data /app/feedback
+ 
+ # Shared volume for the custom ACME CA root PEM (issue #192). The web container
+ # writes it here; Caddy mounts the same volume read-only. Mode 0777 so it stays
+diff --git a/package.json b/package.json
+index 228e753db825ced3960d2aed5d9bd3b4d0da3ab6..ec5036505a4efb81cfdefbbf26194948c3295334 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "caddy-proxy-manager",
+-  "version": "1.0.0",
++  "version": "1.11.2",
+   "description": "Caddy Proxy Manager - web UI for managing Caddy reverse proxies with OAuth2 authentication.",
+   "private": true,
+   "scripts": {
+diff --git a/scripts/test-custom.sh b/scripts/test-custom.sh
+new file mode 100755
+index 0000000000000000000000000000000000000000..6fd3aebb397267b73e7f867120c087f5eacce64f
+--- /dev/null
++++ b/scripts/test-custom.sh
+@@ -0,0 +1,9 @@
++#!/bin/sh
++set -eu
++cd "$(dirname "$0")/.."
++# Suites mock modules and databases: run each in an isolated Bun process.
++for suite in tests/runtime/*.test.ts tests/runtime/*.test.tsx; do
++  bun test "$suite"
++done
++bun tests/runtime/authentik-upstream.ts
++bun tests/runtime/instance-profiles.ts

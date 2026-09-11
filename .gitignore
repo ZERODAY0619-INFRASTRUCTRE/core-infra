@@ -23,3 +23,6 @@ __pycache__/
 *.tar
 *.tar.gz
 /deployment/generated/
+
+# Reproducible upstream source; only patches are published
+/apps/

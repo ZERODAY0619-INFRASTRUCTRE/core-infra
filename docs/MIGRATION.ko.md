@@ -12,6 +12,8 @@ PCPM의 원본 f1257934를 기준으로 통합한 뒤 최신 정식 릴리스 v1
 
 ## 설정 준비
 
+먼저 `python3 scripts/app-source.py prepare`로 원본과 패치를 적용한다. 앱 submodule은 사용하지 않는다.
+
 1. 루트 `.env.example`을 `.env`로 복사하고 [환경설정](ENV.ko.md)을 따른다.
    현재 준비본의 `.env`에는 기존 서버 주소만 보존되어 있고 자격증명은 비어 있다.
 2. 기존 내부 앱 `.env` 다음 기존 `deployment/secrets/icpm.env` 순서의 최종 값을 읽어

@@ -32,11 +32,8 @@ def main():
     c = compose()
     assert contract(c) == json.loads((ROOT / "config/common/deployment-contract.json").read_text()), "Deployment network/volume contract changed"
     app = ROOT / "apps/caddy-proxy-manager"
-    assert (app / "package.json").is_file(), "Initialize submodule first"
-    index = git("ls-files", "--stage", "apps/caddy-proxy-manager").split()
-    assert index and index[0] == "160000", "App must be a gitlink"
-    assert git("-C", str(app), "rev-parse", "HEAD") == index[1], "App checkout differs from staged pin"
-    assert not git("-C", str(app), "status", "--porcelain"), "App submodule has local changes"
+    subprocess.run(["python3", str(ROOT / "scripts/app-source.py"), "check"], check=True)
+    assert not git("ls-files", "apps/caddy-proxy-manager"), "Generated app source must not be tracked"
     s = c["services"]
     for kind in ("web", "caddy"):
         internal, public = s["icpm-" + kind], s["pcpm-" + kind]
@@ -60,12 +57,12 @@ def main():
             assert p.exists(), "Missing bind source: " + str(p)
     for f in git("ls-files").splitlines():
         p = pathlib.PurePosixPath(f)
-        assert not any(x in p.parts for x in ("node_modules", "backups", "runtime", "generated", "patches", ".next")), f
+        assert not any(x in p.parts for x in ("node_modules", "backups", "runtime", "generated", ".next")), f
         assert not f.endswith((".db", ".key", ".pem", ".log")), f
         assert not (f.startswith("deployment/secrets/") and not f.endswith(".example")), f
         assert not (p.name.startswith(".env") and p.name != ".env.example"), f
     with tempfile.TemporaryDirectory() as output:
         render(site, pathlib.Path(output))
-    print("PASS: pinned common app, both instance profiles, original network/volume contracts, bind paths and tracked file exclusions")
+    print("PASS: pinned upstream + custom patch, both instance profiles, original network/volume contracts, bind paths and tracked file exclusions")
 
 if __name__ == "__main__": main()

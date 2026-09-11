@@ -1,0 +1,33 @@
+From 54e24b45f2aa08a2186c5e9fff1da74c8dc09bb9 Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Fri, 11 Sep 2026 07:00:01 +0000
+Subject: [PATCH 2/9] access: retain the last account in an assigned access
+ list
+
+Reject removal of the final account from an access list attached to a
+proxy host so an edit cannot silently remove its account boundary.
+---
+ src/lib/models/access-lists.ts | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/src/lib/models/access-lists.ts b/src/lib/models/access-lists.ts
+index 8dc066c521fc99c846e257a2d680b06e465e78d2..b9b9d7c70b77d801590a16da5023cfde27de6590 100644
+--- a/src/lib/models/access-lists.ts
++++ b/src/lib/models/access-lists.ts
+@@ -238,6 +238,16 @@ export async function removeAccessListEntry(accessListId: number, entryId: numbe
+     throw new Error("Access list not found");
+   }
+ 
++  const remaining = await db.query.accessListEntries.findFirst({
++    where: (table, operators) => operators.and(
++      operators.eq(table.accessListId, accessListId),
++      operators.ne(table.id, entryId)
++    )
++  });
++  if (!remaining) {
++    throw new Error("An access list assigned to a host must retain at least one account");
++  }
++
+   await db.delete(accessListEntries).where(eq(accessListEntries.id, entryId));
+ 
+   logAuditEvent({

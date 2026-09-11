@@ -1,0 +1,49 @@
+{
+  "repository": "https://github.com/fuomag9/caddy-proxy-manager.git",
+  "version": "1.11.2",
+  "commit": "7e5791750e5f6bbd8444ed62c680b8df8ed7c05d",
+  "format": "git-format-patch",
+  "revision": 1,
+  "author": "zeroday0619 <escha@zeroday0619.dev>",
+  "patches": [
+    {
+      "file": "0001-oauth-synchronize-trusted-role-claims-on-account-updates.patch",
+      "sha256": "306880bc941dac5df162fd29ee2eb2c03dbdcfbb28937a91608c178bbe07e62c"
+    },
+    {
+      "file": "0002-access-retain-the-last-account-in-an-assigned-access-list.patch",
+      "sha256": "d215adfc5122e888e65191cabc43b5a441676e03ab0233374d3f696f860e71a7"
+    },
+    {
+      "file": "0003-auth-validate-proxy-authentication-inputs-and-transports.patch",
+      "sha256": "8c6b670bbdf7c6e94047fb75e9b710ab90abb51bd319e67cb17449af4c1bc5e9"
+    },
+    {
+      "file": "0004-l4-restrict-web-owned-overrides-to-numeric-port-bindings.patch",
+      "sha256": "ecdf778104c8e3a16b15fbd549d07dfe1fe98fe65d00e3ca9224c7fd12860784"
+    },
+    {
+      "file": "0005-analytics-retain-tailnet-aware-request-attribution.patch",
+      "sha256": "da538a39d90b63f4d96c4fb94d1bdc4e58c32d47b34408b7c605dfdf3248b7a0"
+    },
+    {
+      "file": "0006-branding-add-TOMORI-presentation-primitives-and-local-fonts.patch",
+      "sha256": "fd2f8eb6c73fc66c643a93634426acd6a4332f1f7a4b35cc81d692063d1ee3b0"
+    },
+    {
+      "file": "0007-status-integrate-branded-responses-and-error-feedback.patch",
+      "sha256": "13d97dfbde3ccc38ae658bbc16ffdd1217f34ad43daf295483316a1b0c1b49e4"
+    },
+    {
+      "file": "0008-ui-apply-the-shared-interface-to-management-screens.patch",
+      "sha256": "8a3924984c5713403d4a245c542e4fbebdaa87b2af081ef346b1fadb1adad9b8"
+    },
+    {
+      "file": "0009-build-share-pinned-images-and-isolate-customization-checks.patch",
+      "sha256": "c054ddfd71c169aa436ccae674fcfc79b6512c203d2ebd34403c27bc4db22c18"
+    }
+  ],
+  "cover_letter": "0000-cover-letter.patch",
+  "cover_letter_sha256": "5dd8dd522b3c8316cf9aff5137feab88a29150cb7476f5af85d8766e8d74c49a",
+  "patched_tree": "911ed81f3657af7486bb7fa78382783ca37cecbc"
+}

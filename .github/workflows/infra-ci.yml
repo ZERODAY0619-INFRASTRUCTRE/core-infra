@@ -8,9 +8,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 0
+      - run: python3 scripts/app-source.py prepare
       - run: ./scripts/validate.sh
       - run: python3 -m unittest discover -s deployment -p 'test_observe_tailnet.py'
       - run: python3 -m unittest discover -s scripts -p 'test_site_config.py'
       - run: python3 scripts/scan-publish.py
+      - run: python3 -m unittest discover -s scripts -p 'test_app_source.py'

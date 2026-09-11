@@ -1,0 +1,865 @@
+From 14b82e9e65c2021c51d3129c9bd4df96203b8c90 Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Fri, 11 Sep 2026 07:00:06 +0000
+Subject: [PATCH 7/9] status: integrate branded responses and error feedback
+
+Unify proxy and application status responses, maintenance handling and
+error feedback using the shared presentation primitives. Carry Caddy
+route integration and the related response regression checks together.
+---
+ app/StatusPage.tsx                        | 12 +++
+ app/api/error-feedback/route.ts           | 12 +++
+ app/error.tsx                             |  8 ++
+ app/global-error.tsx                      |  6 ++
+ app/maintenance/page.tsx                  |  4 +
+ app/not-found.tsx                         |  4 +
+ proxy.ts                                  | 31 +++++++-
+ src/lib/caddy-anubis.ts                   | 62 ++++++++++++++++
+ src/lib/caddy-status.ts                   | 41 +++++++++++
+ src/lib/caddy.ts                          | 59 ++++++++-------
+ src/lib/error-feedback-handler.ts         | 17 +++++
+ src/lib/error-feedback.ts                 | 30 ++++++++
+ src/lib/status-pages.ts                   | 89 +++++++++++++++++++++++
+ src/lib/status-response.ts                |  6 ++
+ tests/browser/status-pages.ts             | 38 ++++++++++
+ tests/runtime/error-feedback.test.ts      | 23 ++++++
+ tests/runtime/instance-profiles.ts        |  8 ++
+ tests/runtime/maintenance-proxy.test.ts   | 39 ++++++++++
+ tests/runtime/status-pages.test.ts        | 26 +++++++
+ tests/unit/caddy-default-response.test.ts | 35 +++++++--
+ tests/unit/caddy-location-rules.test.ts   |  2 +-
+ 21 files changed, 511 insertions(+), 41 deletions(-)
+ create mode 100644 app/StatusPage.tsx
+ create mode 100644 app/api/error-feedback/route.ts
+ create mode 100644 app/error.tsx
+ create mode 100644 app/global-error.tsx
+ create mode 100644 app/maintenance/page.tsx
+ create mode 100644 app/not-found.tsx
+ create mode 100644 src/lib/caddy-anubis.ts
+ create mode 100644 src/lib/caddy-status.ts
+ create mode 100644 src/lib/error-feedback-handler.ts
+ create mode 100644 src/lib/error-feedback.ts
+ create mode 100644 src/lib/status-pages.ts
+ create mode 100644 src/lib/status-response.ts
+ create mode 100644 tests/browser/status-pages.ts
+ create mode 100644 tests/runtime/error-feedback.test.ts
+ create mode 100644 tests/runtime/instance-profiles.ts
+ create mode 100644 tests/runtime/maintenance-proxy.test.ts
+ create mode 100644 tests/runtime/status-pages.test.ts
+
+diff --git a/app/StatusPage.tsx b/app/StatusPage.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..5bee25c9e9636f0419da8dd5e231a44aab244e4d
+--- /dev/null
++++ b/app/StatusPage.tsx
+@@ -0,0 +1,12 @@
++"use client";
++import {useEffect,useRef,useState} from 'react';
++import {bindStatusPage,statusMarkup,type StatusDetails} from '@/src/lib/status-pages';
++function diagnosticId(){const b=crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const h=Array.from(b,v=>v.toString(16).padStart(2,'0')).join('');return [h.slice(0,8),h.slice(8,12),h.slice(12,16),h.slice(16,20),h.slice(20)].join('-');}
++export function StatusPage({code,details={},digest,reset,maintenance=false}: {code:string;title?:string;message?:string;action?:boolean;reset?:()=>void;details?:StatusDetails;digest?:string;maintenance?:boolean}) {
++  const ref=useRef<HTMLDivElement>(null);
++  const [client,setClient]=useState<StatusDetails>({});
++  useEffect(()=>{if(!details.requestId)setClient({requestId:diagnosticId(),timestamp:new Date().toISOString(),host:location.host,path:location.pathname,timeLabel:'Page display time (UTC)',idLabel:'Page diagnostic ID'});},[details.requestId]);
++  const markup=statusMarkup(code,{...client,...details,digest},maintenance);
++  useEffect(()=>bindStatusPage(ref.current?.querySelector('.status-page')??null,reset),[markup,reset]);
++  return <div ref={ref} dangerouslySetInnerHTML={{__html:markup}}/>;
++}
+diff --git a/app/api/error-feedback/route.ts b/app/api/error-feedback/route.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..27d4314b3c6c0551220472389da7fe58b31ad3eb
+--- /dev/null
++++ b/app/api/error-feedback/route.ts
+@@ -0,0 +1,12 @@
++import {NextRequest,NextResponse} from 'next/server';
++import {auth} from '@/src/lib/auth';
++import {feedbackSummary} from '@/src/lib/error-feedback';
++import {handleFeedbackRequest} from '@/src/lib/error-feedback-handler';
++export const runtime='nodejs';
++const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
++export async function POST(req:NextRequest){return handleFeedbackRequest(req);}
++export async function GET(req:NextRequest){
++  const session=await auth(req);
++  if(session?.user.role!=='admin')return NextResponse.json({error:'Forbidden'},{status:403,headers});
++  return NextResponse.json({last30Days:feedbackSummary()},{headers});
++}
+diff --git a/app/error.tsx b/app/error.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..fdd478b467c7bffe4c8693332c3f4d50aaef6840
+--- /dev/null
++++ b/app/error.tsx
+@@ -0,0 +1,8 @@
++"use client";
++import { useEffect } from "react";
++import { StatusPage } from "./StatusPage";
++import { statusMessages } from "@/src/lib/status-pages";
++export default function ErrorPage({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
++  useEffect(() => { console.error("Application error", error); }, [error]);
++  return <StatusPage {...statusMessages.error} reset={reset} digest={error.digest} />;
++}
+diff --git a/app/global-error.tsx b/app/global-error.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..7f68698a436187a0c752c754bffdab400afcfb8e
+--- /dev/null
++++ b/app/global-error.tsx
+@@ -0,0 +1,6 @@
++"use client";
++import { StatusPage } from "./StatusPage";
++import { statusMessages } from "@/src/lib/status-pages";
++export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
++  return <html lang="en"><body style={{ margin: 0 }}><StatusPage {...statusMessages.error} reset={reset} digest={error.digest} /></body></html>;
++}
+diff --git a/app/maintenance/page.tsx b/app/maintenance/page.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..78751633aa08edf7dac81974a5e07f91578a9330
+--- /dev/null
++++ b/app/maintenance/page.tsx
+@@ -0,0 +1,4 @@
++import { headers } from "next/headers";
++import { StatusPage } from "../StatusPage";
++import { requestDetails } from "@/src/lib/status-response";
++export default async function Page(){const h=await headers();return <StatusPage code="503" maintenance details={requestDetails(h,h.get("host")||"",h.get("x-cpm-request-path")||"/")}/>;}
+diff --git a/app/not-found.tsx b/app/not-found.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..636b990a6847e49234133cde9417997fa6e5f184
+--- /dev/null
++++ b/app/not-found.tsx
+@@ -0,0 +1,4 @@
++import { headers } from "next/headers";
++import { StatusPage } from "./StatusPage";
++import { requestDetails } from "@/src/lib/status-response";
++export default async function Page(){const h=await headers();return <StatusPage code="404" details={requestDetails(h,h.get("host")||"",h.get("x-cpm-request-path")||"/")}/>;}
+diff --git a/proxy.ts b/proxy.ts
+index a7a8995cf963e065f72d99a59e7c3f07e1376c8d..4734b8bd9d43f847c4a1b224fe4b4f41cc528ead 100644
+--- a/proxy.ts
++++ b/proxy.ts
+@@ -1,3 +1,5 @@
++import { maintenanceEnabled, statusHtml } from "@/src/lib/status-pages";
++import { responseHeaders } from "@/src/lib/status-response";
+ import { NextResponse } from "next/server";
+ import type { NextRequest } from "next/server";
+ import crypto from "node:crypto";
+@@ -14,9 +16,30 @@ import { buildCsp } from "@/src/lib/csp";
+ 
+ export default async function middleware(req: NextRequest) {
+   const pathname = req.nextUrl.pathname;
++  const requestId = crypto.randomUUID();
++  const timestamp = new Date().toISOString();
++  const diagnosticHeaders = new Headers(req.headers);
++  diagnosticHeaders.set("x-cpm-request-id", requestId);
++  diagnosticHeaders.set("x-cpm-request-time", timestamp);
++  diagnosticHeaders.set("x-cpm-request-path", pathname);
++
++  // Health probes stay available; APIs and server actions must also stop during maintenance.
++  if (maintenanceEnabled() && pathname !== "/api/health" && !(pathname === "/api/error-feedback" && req.method === "POST")) {
++    const headers = { ...responseHeaders(), "Retry-After": "300", "X-Request-ID": requestId };
++    if (pathname.startsWith("/api/")) {
++      return NextResponse.json({ error: "Service unavailable", code: "MAINTENANCE" }, {
++        status: 503, headers: { ...headers, "Content-Type": "application/json; charset=utf-8" },
++      });
++    }
++    return new NextResponse(req.method === "HEAD" ? null : statusHtml("maintenance", "503", {requestId,timestamp,host:req.nextUrl.host,path:pathname,source:"app"}), { status: 503, headers });
++  }
+ 
+   // Allow public routes
+   if (
++    ((req.method === "GET" || req.method === "HEAD") &&
++      (pathname === "/fonts/barlow-condensed-bold.ttf" || pathname === "/fonts/ibm-plex-mono.ttf")) ||
++    pathname === "/api/error-feedback" ||
++    pathname === "/maintenance" ||
+     pathname === "/login" ||
+     pathname === "/portal" ||
+     pathname.startsWith("/api/auth") ||
+@@ -25,7 +48,8 @@ export default async function middleware(req: NextRequest) {
+     pathname.startsWith("/api/v1/") ||
+     pathname.startsWith("/api/forward-auth/")
+   ) {
+-    const publicResponse = NextResponse.next();
++    const publicResponse = NextResponse.next({request:{headers:diagnosticHeaders}});
++    publicResponse.headers.set("X-Request-ID",requestId);
+     // Anti-clickjacking for public pages (/login, /portal): the authenticated
+     // branch below sets the full security-header set, but public pages returned
+     // here previously carried none, leaving the login and forward-auth portal
+@@ -51,13 +75,14 @@ export default async function middleware(req: NextRequest) {
+   const csp = buildCsp(nonce);
+ 
+   // Set CSP as a request header so Next.js can read the nonce
+-  const requestHeaders = new Headers(req.headers);
++  const requestHeaders = diagnosticHeaders;
+   requestHeaders.set("Content-Security-Policy", csp);
+ 
+   const response = NextResponse.next({
+     request: { headers: requestHeaders },
+   });
+ 
++  response.headers.set("X-Request-ID", requestId);
+   // Also set CSP as a response header for browser enforcement
+   response.headers.set("Content-Security-Policy", csp);
+   response.headers.set("X-Content-Type-Options", "nosniff");
+@@ -81,6 +106,6 @@ export const config = {
+      *   analytics map silently breaks)
+      * - public folder
+      */
+-    "/((?!_next/static|_next/image|favicon.ico|maplibre/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
++    "/((?!_next/static|_next/image|favicon.ico|maplibre/).*)",
+   ],
+ };
+diff --git a/src/lib/caddy-anubis.ts b/src/lib/caddy-anubis.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..377ec73c128fef6e3a50b0df2afe87a38b1e71f0
+--- /dev/null
++++ b/src/lib/caddy-anubis.ts
+@@ -0,0 +1,62 @@
++/**
++ * Same-origin Anubis gate. Only the private success responder's HTTP 204 lets
++ * Caddy continue with the ORIGINAL request, including body, TLS and client IP.
++ * Challenge pages (HTTP 200), denials and errors are returned to the client.
++ * Keep this before every managed route so custom locations cannot bypass it.
++ */
++export function buildAnubisGate(domain: string | undefined) {
++  if (!domain) return null;
++  if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(domain)) {
++    throw new Error("Invalid ANUBIS_PROTECTED_DOMAIN");
++  }
++  // A host matcher would make Caddy auto-manage a new wildcard certificate.
++  // CEL matches the same one-label scope without changing TLS subjects.
++  const hostPattern = `^[^.]+[.]${domain.replaceAll(".", "[.]")}[.]?$`;
++  const expression = `{http.request.host}.lowerAscii().matches(${JSON.stringify(hostPattern)})`;
++  const proxy = () => ({
++    handler: "reverse_proxy",
++    upstreams: [{ dial: "127.0.0.1:8923" }],
++    transport: { protocol: "http", dial_timeout: 3_000_000_000, response_header_timeout: 15_000_000_000 },
++    headers: { request: { set: {
++      "X-Real-IP": ["{http.vars.client_ip}"],
++      "X-Http-Version": ["{http.request.proto}"],
++      "X-Forwarded-For": ["{http.vars.client_ip}"],
++      "X-Forwarded-Host": ["{http.request.host}"],
++      "X-Forwarded-Proto": ["{http.request.scheme}"],
++    }, delete: ["Forwarded", "X-Anubis-Status", "X-Anubis-Rule", "X-Anubis-Action"] } },
++  });
++  return {
++    routes: [
++      {
++        match: [{ expression, protocol: "http" }],
++        handle: [{ handler: "static_response", status_code: 308,
++          headers: { Location: ["https://{http.request.host}{http.request.uri}"] } }],
++        terminal: true,
++      },
++      {
++        match: [{ expression, path: ["/.within.website/x/cmd/anubis/*", "/.within.website/x/xess/*"] }],
++        handle: [proxy()],
++        terminal: true,
++      },
++      {
++        match: [{ expression }],
++        handle: [{
++          ...proxy(),
++          // Like forward_auth, clone as GET so the service retains the body.
++          // Preserve the original URI so challenges return to the same URL.
++          rewrite: { method: "GET" },
++          handle_response: [{
++            match: { status_code: [204], headers: { "X-Cpm-Anubis-Verified": ["yes"] } },
++            routes: [{ handle: [{ handler: "headers", response: { set: { "X-Anubis-Gate": ["passed"] } } }] }],
++          }],
++        }],
++      },
++    ],
++    successServer: {
++      listen: ["127.0.0.1:8924"],
++      automatic_https: { disable: true },
++      routes: [{ handle: [{ handler: "static_response", status_code: 204,
++        headers: { "X-Cpm-Anubis-Verified": ["yes"] } }] }],
++    },
++  };
++}
+diff --git a/src/lib/caddy-status.ts b/src/lib/caddy-status.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a7fdca23fd24c5577069e2d0ba29d34e554c4631
+--- /dev/null
++++ b/src/lib/caddy-status.ts
+@@ -0,0 +1,41 @@
++import {statusHtml,errorCatalog} from './status-pages';
++import {responseHeaders} from './status-response';
++/** Only generated HTML gets template evaluation. Never wrap upstream/custom bodies. */
++export function caddyStatusRoute(status:number,kind:'error'|'notFound'|'maintenance'='error',errorRoute=false) {
++  const details={source:'proxy' as const,proxyLabel:process.env.CPM_EDGE_LABEL||'Service proxy',requestId:'CPM_REQUEST_ID_TOKEN',timestamp:'CPM_TIME_TOKEN',host:'CPM_HOST_TOKEN',path:'CPM_PATH_TOKEN',clientIp:'CPM_IP_TOKEN'};
++  let body=statusHtml(kind,String(status),details);
++  const tokens:Record<string,string>={
++    CPM_REQUEST_ID_TOKEN:'{{placeholder "http.request.uuid" | html}}',
++    CPM_TIME_TOKEN:'{{dateInZone "2006-01-02 15:04:05" now "UTC" | html}}',
++    CPM_HOST_TOKEN:'{{placeholder "http.request.host" | html}}',
++    CPM_PATH_TOKEN:'{{placeholder "http.request.orig_uri.path" | html}}',
++    CPM_IP_TOKEN:'{{or (placeholder "http.vars.client_ip") (placeholder "http.request.remote.host") "Unavailable" | html}}',
++  };
++  for(const [token,value] of Object.entries(tokens))body=body.replaceAll(token,value);
++  return {
++    ...(errorRoute?{match:[{expression:`{http.error.status_code} == ${status}`}]}:{}),
++    handle:[{handler:'templates',mime_types:['text/html']},{handler:'static_response',status_code:status,body,
++      headers:{...Object.fromEntries(Object.entries(responseHeaders()).map(([k,v])=>[k,[v]])),'X-Request-ID':['{http.request.uuid}'],...(kind==='maintenance'?{'Retry-After':['300']}:{})}}],terminal:true,
++  };
++}
++export function defaultErrorRoutes(){
++  const routes:Record<string,unknown>[]=Object.keys(errorCatalog).map(Number).map(code=>caddyStatusRoute(code,code===404?'notFound':'error',true));
++  // Generic explanations for other codes, retaining the actual HTTP status.
++  for (const code of [400,500]) {
++    const fallback:Record<string,unknown>=caddyStatusRoute(code);
++    if(code===400)fallback.match=[{expression:"{http.error.status_code} < 500"}];
++    const response=(fallback.handle as {body:string;status_code:number|string}[])[1];
++    response.status_code='{http.error.status_code}';
++    response.body=response.body.replaceAll(`data-status-code="${code}"`,'data-status-code="{{placeholder "http.error.status_code" | html}}"').replace(`<span class="status-designation">${code}</span>`,'<span class="status-designation">{{placeholder "http.error.status_code" | html}}</span>');
++    routes.push(fallback);
++  }
++  return routes;
++}
++export function feedbackProxyRoute(upstream:string|undefined){
++  if(!upstream)return null;
++  if(!/^[a-zA-Z0-9.-]+:\d{1,5}$/.test(upstream))throw new Error('Invalid CPM_FEEDBACK_UPSTREAM');
++  return {match:[{path:['/api/error-feedback'],method:['POST']}],handle:[
++    {handler:'request_body',max_size:2048},
++    {handler:'reverse_proxy',upstreams:[{dial:upstream}],headers:{request:{delete:['Cookie','Authorization']}},transport:{protocol:'http',dial_timeout:3_000_000_000,response_header_timeout:5_000_000_000}},
++  ],terminal:true};
++}
+diff --git a/src/lib/caddy.ts b/src/lib/caddy.ts
+index dd18d33a92e3cf902a387c1bace03ce3b7954a5d..7f40b7b60a8f2090c5323472f95162096d0bef54 100644
+--- a/src/lib/caddy.ts
++++ b/src/lib/caddy.ts
+@@ -1,3 +1,7 @@
++import { caddyStatusRoute, defaultErrorRoutes, feedbackProxyRoute } from "./caddy-status";
++import { maintenanceEnabled, upstreamErrorResponses } from "./status-pages";
++import { buildAnubisGate } from "./caddy-anubis";
++import { buildAuthentikUpstream } from "./caddy-authentik";
+ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+ import { Resolver } from "node:dns/promises";
+ import { join, dirname } from "node:path";
+@@ -769,6 +773,7 @@ export function buildLocationReverseProxy(
+   const reverseProxyHandler: Record<string, unknown> = {
+     handler: "reverse_proxy",
+     upstreams: parsedTargets.map((t) => ({ dial: t.dial })),
++    handle_response: upstreamErrorResponses(),
+   };
+ 
+   if (preserveHostHeader) {
+@@ -1010,6 +1015,14 @@ async function buildProxyRoutes(
+             }
+           }
+         });
++      } else {
++        // An assigned but empty access list is a revoked policy, not a public route.
++        // Fail closed before the backend handler can run.
++        handlers.push({
++          handler: "static_response",
++          status_code: 403,
++          body: "Access denied"
++        });
+       }
+     }
+ 
+@@ -1030,30 +1043,16 @@ async function buildProxyRoutes(
+ 
+     const reverseProxyHandler: Record<string, unknown> = {
+       handler: "reverse_proxy",
+-      upstreams: resolvedUpstreams.upstreams
++      upstreams: resolvedUpstreams.upstreams,
++      handle_response: upstreamErrorResponses(),
+     };
+ 
+     // Authentik outpost handler will be added later after protected paths
+     let outpostRoute: CaddyHttpRoute | null = null;
+     if (authentik) {
+-      // Parse the outpost upstream URL to extract host:port for Caddy's dial field
+-      let outpostDial: string;
+-      try {
+-        const url = new URL(authentik.outpostUpstream);
+-        const port = url.port || (url.protocol === "https:" ? "443" : "80");
+-        outpostDial = `${url.hostname}:${port}`;
+-      } catch {
+-        // If URL parsing fails, try to extract host:port from string
+-        outpostDial = authentik.outpostUpstream.replace(/^https?:\/\//, "").replace(/\/$/, "");
+-      }
+-
+       const outpostHandler: Record<string, unknown> = {
+         handler: "reverse_proxy",
+-        upstreams: [
+-          {
+-            dial: outpostDial
+-          }
+-        ]
++        ...buildAuthentikUpstream(authentik.outpostUpstream),
+       };
+ 
+       if (authentik.setOutpostHostHeader) {
+@@ -1211,19 +1210,9 @@ async function buildProxyRoutes(
+         ? ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "fd00::/8", "::1/128"]
+         : authentik.trustedProxies;
+ 
+-      // Parse the outpost upstream to extract host:port for dial
+-      // Remove http://, https://, and any trailing slashes
+-      let dialAddress = authentik.outpostUpstream.replace(/^https?:\/\//, "").replace(/\/$/, "");
+-      // Remove any path portion if accidentally included
+-      dialAddress = dialAddress.split("/")[0];
+-
+       const forwardAuthHandler: Record<string, unknown> = {
+         handler: "reverse_proxy",
+-        upstreams: [
+-          {
+-            dial: dialAddress
+-          }
+-        ],
++        ...buildAuthentikUpstream(authentik.outpostUpstream),
+         rewrite: {
+           method: "GET",
+           uri: authentik.authEndpoint
+@@ -2593,13 +2582,22 @@ export async function buildCaddyDocument() {
+   // unmatched-request behavior and must remain last so it cannot shadow any
+   // managed proxy host.
+   const defaultResponseRoute = buildDefaultResponseRoute(defaultResponseSettings);
+-  const mainRoutes = defaultResponseRoute ? [...httpRoutes, defaultResponseRoute] : httpRoutes;
++  const anubisGate = buildAnubisGate(process.env.ANUBIS_PROTECTED_DOMAIN);
++  const mainRoutes = [...(anubisGate?.routes ?? []), ...httpRoutes, ...(defaultResponseRoute ? [defaultResponseRoute] : [])];
+ 
+   // Server-level error routes (Caddy handle_errors): per-host rules first so they
+   // take precedence, then global rules act as a fallback for any unmatched host/status.
+   const globalErrorPages = await getErrorPagesSettings();
+   const globalErrorRoutes = (globalErrorPages?.rules ?? []).map((rule) => buildErrorPageRoute(rule));
+-  const errorRoutes: CaddyHttpRoute[] = [...hostErrorRoutes, ...globalErrorRoutes];
++  const errorRoutes: CaddyHttpRoute[] = [...hostErrorRoutes, ...globalErrorRoutes, ...defaultErrorRoutes()];
++  if (!defaultResponseRoute) mainRoutes.push(caddyStatusRoute(404, "notFound"));
++  if (maintenanceEnabled()) mainRoutes.unshift(caddyStatusRoute(503, "maintenance"));
++  const feedback = feedbackProxyRoute(process.env.CPM_FEEDBACK_UPSTREAM);
++  if (feedback) mainRoutes.unshift(feedback);
++  mainRoutes.unshift({handle:[
++    {handler:"log_append", key:"request_id", value:"{http.request.uuid}"},
++    {handler:"headers", response:{set:{"X-Request-ID":["{http.request.uuid}"]}}},
++  ]});
+ 
+   const hasTls = tlsConnectionPolicies.length > 0;
+ 
+@@ -2614,6 +2612,7 @@ export async function buildCaddyDocument() {
+   const loggingFormat = loggingSettings?.format ?? "json";
+ 
+   const servers: Record<string, unknown> = {};
++  if (anubisGate) servers.anubis_success = anubisGate.successServer;
+ 
+   // Server-level trusted proxies / client-IP headers. Caddy resolves client_ip
+   // in core before any handler, so this is the only place a global list fixes
+diff --git a/src/lib/error-feedback-handler.ts b/src/lib/error-feedback-handler.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a9bbf7489b751ed9f8d12bfbb1203a9aaf47374
+--- /dev/null
++++ b/src/lib/error-feedback-handler.ts
+@@ -0,0 +1,17 @@
++import {validFeedback,saveFeedback} from './error-feedback';
++const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
++export async function handleFeedbackRequest(req:Request){
++  const origin=req.headers.get('origin');
++  try{if(!origin||new URL(origin).host!==req.headers.get('host'))return Response.json({error:'Invalid origin'},{status:403,headers});}catch{return Response.json({error:'Invalid origin'},{status:403,headers});}
++  if(req.headers.get('content-type')?.split(';')[0]!=='application/json')return Response.json({error:'Unsupported content type'},{status:415,headers});
++  const reader=req.body?.getReader();if(!reader)return Response.json({error:'Missing body'},{status:400,headers});
++  const chunks:Uint8Array[]=[];let size=0;
++  try{
++    while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>2048){await reader.cancel();return Response.json({error:'Body too large'},{status:413,headers});}chunks.push(value);}
++    const value:unknown=JSON.parse(Buffer.concat(chunks).toString('utf8'));
++    if(!validFeedback(value))return Response.json({error:'Invalid feedback'},{status:400,headers});
++    const result=saveFeedback(value);
++    if(result==='limited')return Response.json({error:'Try later'},{status:429,headers:{...headers,'Retry-After':'60'}});
++    return Response.json({saved:true},{headers});
++  }catch{return Response.json({error:'Unable to save feedback'},{status:400,headers});}
++}
+diff --git a/src/lib/error-feedback.ts b/src/lib/error-feedback.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a9a497cb4a7c6738dedb54d63cc8fc6df05f91aa
+--- /dev/null
++++ b/src/lib/error-feedback.ts
+@@ -0,0 +1,30 @@
++import {Database} from 'bun:sqlite';
++import {mkdirSync} from 'node:fs';
++import {dirname,join} from 'node:path';
++let database:Database|undefined;
++function db(){
++  if(!database){
++    const path=process.env.ERROR_FEEDBACK_PATH||join(dirname(process.env.DATABASE_PATH||'/app/data/caddy-proxy-manager.db'),'error-feedback.db');
++    if(path!==':memory:')mkdirSync(dirname(path),{recursive:true});
++    database=new Database(path);
++    database.exec('PRAGMA busy_timeout=2000; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS feedback (request_id TEXT PRIMARY KEY, status INTEGER NOT NULL, helpful INTEGER NOT NULL, created_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS feedback_time ON feedback(created_at)');
++  }return database;
++}
++export function validFeedback(value:unknown):value is {requestId:string;code:number;helpful:boolean}{
++  if(!value||typeof value!=='object'||Array.isArray(value))return false;
++  const v=value as Record<string,unknown>;
++  return Object.keys(v).length===3&&typeof v.requestId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.requestId)&&Number.isInteger(v.code)&&Number(v.code)>=400&&Number(v.code)<=599&&typeof v.helpful==='boolean';
++}
++export function saveFeedback(value:{requestId:string;code:number;helpful:boolean},now=Math.floor(Date.now()/1000)):'saved'|'duplicate'|'limited'{
++  return db().transaction(()=>{
++    const d=db();
++    d.query('DELETE FROM feedback WHERE created_at < ?').run(now-30*86400);
++    if(d.query('SELECT 1 FROM feedback WHERE request_id=?').get(value.requestId))return 'duplicate' as const;
++    const recent=d.query('SELECT count(*) AS count FROM feedback WHERE created_at >= ?').get(now-60) as {count:number};
++    if(recent.count>=100)return 'limited' as const;
++    d.query('INSERT INTO feedback VALUES (?,?,?,?)').run(value.requestId,value.code,value.helpful?1:0,now);
++    d.exec('DELETE FROM feedback WHERE request_id IN (SELECT request_id FROM feedback ORDER BY created_at DESC, request_id LIMIT -1 OFFSET 10000)');
++    return 'saved' as const;
++  })();
++}
++export function feedbackSummary(){return db().query('SELECT status, helpful, count(*) AS count FROM feedback WHERE created_at >= ? GROUP BY status, helpful ORDER BY status').all(Math.floor(Date.now()/1000)-30*86400);}
+diff --git a/src/lib/status-pages.ts b/src/lib/status-pages.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..91311dab4cf11cc02eebaf76c16879aaf4578d57
+--- /dev/null
++++ b/src/lib/status-pages.ts
+@@ -0,0 +1,89 @@
++import { APP_NAME, APP_FULL_NAME } from "./branding";
++/** Shared presentation. Request values are escaped before being placed in HTML. */
++export type StatusDetails = {
++  requestId?: string; timestamp?: string; host?: string; path?: string; clientIp?: string;
++  source?: 'proxy' | 'app'; digest?: string; timeLabel?: string; idLabel?: string; proxyLabel?: string;
++};
++export const statusMessages = {
++  maintenance: {code:'503',title:'Maintenance in progress',message:'The system is undergoing maintenance to keep the service reliable.'},
++  notFound: {code:'404',title:'Page not found',message:'No page was found at the requested address.'},
++  error: {code:'500',title:'Service unavailable',message:'An error occurred while processing the request.'},
++};
++export const errorCatalog: Record<number, {title:string; reason:string; visitor:string; owner:string}> = {
++  400:{title:'Bad request',reason:'The request could not be processed because its format is invalid.',visitor:'Check the address and try again.',owner:'Check request formatting, header limits, and application validation logs.'},
++  401:{title:'Authentication required',reason:'Valid authentication is required to access this resource.',visitor:'Sign in to the service and try again.',owner:'Check sessions, access permissions, and the authentication service.'},
++  403:{title:'Access denied',reason:'Access to this resource is not allowed.',visitor:'Check your permissions or contact the operator with the request ID.',owner:'Review access controls and security policies to identify why this request was blocked.'},
++  404:{title:'Page not found',reason:'No matching resource or host configuration was found.',visitor:'Check the address or return to the home page.',owner:'Check the hostname, routing rules, and origin server path.'},
++  408:{title:'Request timed out',reason:'The request did not complete within the allowed time.',visitor:'Check your connection and try again.',owner:'Check request timeouts and client connections.'},
++  413:{title:'Request too large',reason:'The submitted data exceeds the allowed request size.',visitor:'Reduce the file or request size and try again.',owner:'Check request body limits on the proxy and application.'},
++  429:{title:'Too many requests',reason:'The request rate limit was exceeded.',visitor:'Wait a moment before trying again.',owner:'Check rate limits and traffic around the event time.'},
++  500:{title:'Internal server error',reason:'An internal error occurred while processing the request.',visitor:'Try again later. If the problem persists, share the diagnostics with the operator.',owner:'Use the timestamp and request ID to find the application and proxy error logs.'},
++  501:{title:'Request not supported',reason:'The server does not support the requested functionality.',visitor:'Contact the operator about the feature you were trying to use.',owner:'Check the HTTP method and server capabilities.'},
++  502:{title:'Invalid origin response',reason:'The proxy could not connect to the origin or receive a valid response.',visitor:'Try again in a moment.',owner:'Check origin availability, DNS, network connectivity, TLS, and error logs.'},
++  503:{title:'Service temporarily unavailable',reason:'The server cannot currently handle this request. Maintenance or overload are possible causes.',visitor:'Try again later.',owner:'Check maintenance settings, server load, and available upstreams.'},
++  504:{title:'Origin response timed out',reason:'The proxy did not receive an origin response within the allowed time.',visitor:'Try again in a moment.',owner:'Check origin processing delays, response timeouts, and network connectivity.'},
++  520:{title:'Unknown origin error',reason:'An upstream service returned HTTP 520.',visitor:'Try again in a moment.',owner:'Review upstream proxy and origin responses and error logs.'},
++  521:{title:'Origin connection refused',reason:'An upstream service returned HTTP 521, indicating a refused connection.',visitor:'Try again in a moment.',owner:'Check whether the origin is running and whether a firewall is blocking connections.'},
++  522:{title:'Origin connection timed out',reason:'An upstream service returned HTTP 522, indicating a connection timeout.',visitor:'Try again in a moment.',owner:'Check origin availability, network connections, and firewall policies.'},
++  523:{title:'Origin unreachable',reason:'An upstream service returned HTTP 523, indicating an unreachable origin.',visitor:'Try again later.',owner:'Check the origin IP, DNS settings, and network route.'},
++  524:{title:'Processing timed out',reason:'An upstream service returned HTTP 524, indicating a processing timeout.',visitor:'Try again later.',owner:'Check long-running jobs and upstream response timeouts.'},
++  525:{title:'Origin TLS handshake failed',reason:'An upstream service returned HTTP 525, indicating a TLS handshake failure.',visitor:'Contact the service operator.',owner:'Check origin TLS protocols, cipher settings, and certificates.'},
++  526:{title:'Invalid origin certificate',reason:'An upstream service returned HTTP 526, indicating a certificate validation failure.',visitor:'Contact the service operator.',owner:'Check certificate validity, hostnames, and the certificate chain.'},
++  530:{title:'Upstream service error',reason:'An upstream service returned HTTP 530.',visitor:'Try again later or contact the operator.',owner:'Check upstream DNS settings and the detailed error code.'},
++};
++export const statusStyles = `
++.status-page{--s-bg:#0b090b;--s-soft:#140e0f;--s-text:#f3ece2;--s-muted:#c5b7b1;--s-line:#743338;--s-accent:#f05252;--s-number:#f19e1f;box-sizing:border-box;display:flow-root;min-height:100vh;background:var(--s-bg);color:var(--s-text);font:16px/1.55 Arial,system-ui,sans-serif;padding:0 24px 32px}.status-page *{box-sizing:border-box}.status-wrap{max-width:1100px;margin:auto}.status-brand{display:grid;grid-template-columns:1fr auto;align-items:end;gap:12px 24px;margin-top:24px;padding:20px 0;border-top:3px solid var(--s-accent);border-bottom:1px solid var(--s-line)}.status-wordmark{font:800 48px/.9 "Arial Narrow",Arial,sans-serif;letter-spacing:-.04em;color:var(--s-accent)}.status-brand-subtitle{font:700 12px/1.5 Consolas,monospace;letter-spacing:.08em;text-align:right}.status-full-name{grid-column:1/-1;max-width:680px;font-size:12px;line-height:1.6;color:var(--s-muted)}.status-header{display:grid;grid-template-columns:220px minmax(0,1fr);gap:10px 40px;padding:40px 0 32px;border-bottom:1px solid var(--s-line);margin-bottom:24px}.status-code{border-left:3px solid var(--s-accent);padding-left:18px;display:flex;flex-direction:column;gap:18px;grid-row:1/4;margin:0;color:var(--s-accent)}.status-protocol{font:600 11px/1.4 Consolas,monospace;letter-spacing:.08em}.status-designation{color:var(--s-number);font:400 112px/.9 "Arial Narrow",Arial,sans-serif;letter-spacing:-.07em}.status-page h2{margin:0;font:800 38px/1.05 "Arial Narrow",Arial,sans-serif;letter-spacing:-.025em;text-transform:uppercase;overflow-wrap:anywhere}.status-message{margin:0;color:var(--s-muted);max-width:760px}.status-time{display:block;margin-top:12px;font:12px/1.6 Consolas,monospace;color:var(--s-muted)}.status-chain{counter-reset:layer;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--s-soft);border:1px solid var(--s-line)}.status-node{counter-increment:layer;position:relative;padding:24px;text-align:left}.status-node::after{content:"";position:absolute;top:24px;right:24px;width:42px;height:8px;background:repeating-linear-gradient(90deg,var(--s-line) 0 4px,transparent 4px 7px)}.status-node::before{content:"LAYER " counter(layer,decimal-leading-zero);display:block;margin-bottom:24px;font:10px/1.5 Consolas,monospace;letter-spacing:.08em;color:var(--s-muted)}.status-node+.status-node{border-left:1px solid var(--s-line)}.status-node svg{width:32px;height:32px;margin-bottom:12px}.status-page h3{margin:0 0 12px;font:700 24px/1.15 "Arial Narrow",Arial,sans-serif;text-transform:uppercase;letter-spacing:.02em}.status-node h3{font-size:20px;color:var(--s-text)}.status-node p{font-size:13px;margin:8px 0;color:var(--s-muted);overflow-wrap:anywhere}.status-badge{border-left-width:4px!important;display:inline-block;border:1px solid currentColor;padding:5px 8px;font:12px/1.4 Consolas,monospace}.status-ok{color:#86c78a}.status-error{color:#ff8875}.status-unknown{color:#c3b29c}.status-explainer{display:grid;grid-template-columns:1fr 1fr;gap:40px;padding:36px 0;border-bottom:1px solid var(--s-line)}.status-explainer p{margin:0;color:var(--s-muted)}.status-owner{margin-top:24px}.status-page summary{cursor:pointer;font-weight:600;min-height:48px;display:flex;align-items:center;text-decoration:underline;text-underline-offset:4px;color:var(--s-accent)}.status-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}.status-action{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:10px 18px;border:1px solid var(--s-accent);border-radius:0;background:var(--s-accent);color:var(--s-bg);font:700 13px/1.4 "Arial Narrow",Arial,sans-serif;letter-spacing:.045em;text-transform:uppercase;text-decoration:none;cursor:pointer;transition:background-color 120ms linear,color 120ms linear}.status-secondary{background:transparent;color:var(--s-text);border-color:var(--s-line)}.status-action:hover:not(:disabled){filter:brightness(1.12)}.status-secondary:hover:not(:disabled){border-color:var(--s-accent);color:var(--s-accent)}.status-action:active:not(:disabled){filter:brightness(.85)}.status-action:disabled{opacity:.5;cursor:wait}.status-page :is(a,button,summary,textarea):focus-visible{outline:2px solid var(--s-accent);outline-offset:3px}.status-footer{padding-top:24px;font-size:13px;color:var(--s-muted)}.status-meta{display:flex;flex-wrap:wrap;gap:12px 32px;align-items:baseline}.status-meta p{margin:0}.status-meta code{overflow-wrap:anywhere}.status-feedback{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:24px}.status-feedback .status-action{min-width:64px}.status-ip{display:inline-block}.status-ip summary{display:inline-flex}.status-notice{min-height:24px;font-size:13px;margin:12px 0 0;color:var(--s-muted)}.status-copybox{width:100%;min-height:120px;border:1px solid var(--s-line);border-radius:0;padding:12px;background:var(--s-soft);color:var(--s-text);font:14px/1.55 monospace}.status-page [hidden]{display:none!important}.status-skip{position:absolute;top:0;left:24px;transform:translateY(-150%);background:var(--s-accent);color:var(--s-bg);padding:12px}.status-skip:focus{transform:none}.status-note{font:11px/1.7 Consolas,monospace;color:var(--s-muted);margin:20px 0 0}
++@media(max-width:833px){.status-header{grid-template-columns:1fr;padding:28px 0}.status-code{grid-row:auto}.status-page h2{font-size:32px;margin-top:14px}.status-designation{font-size:100px}.status-chain,.status-explainer{grid-template-columns:1fr}.status-node{padding:20px}.status-node::before{margin-bottom:14px}.status-node+.status-node{border-left:0;border-top:1px solid var(--s-line)}.status-explainer{gap:28px;padding:28px 0}.status-actions>.status-action{width:100%}.status-feedback>span{flex-basis:100%}.status-meta{display:block}.status-meta>p{margin:12px 0}.status-brand{grid-template-columns:1fr}.status-brand-subtitle{text-align:left;font-size:11px}.status-wordmark{font-size:44px}}
++@media(max-width:419px){.status-page{padding-inline:16px}.status-page h2{font-size:28px}.status-designation{font-size:92px}}
++@media(prefers-contrast:more){.status-page{--s-bg:#131416;--s-soft:#1e2124;--s-text:#fff;--s-muted:#e6e8ea;--s-line:#a9b2ba;--s-accent:#ffb7b9;--s-number:#ffd28a}.status-ok{color:#a4edba}.status-error{color:#ffb7a9}.status-unknown{color:#e7dfd0}}
++@media(prefers-reduced-motion:reduce){.status-action{transition:none}}
++`;
++export function escapeHtml(value: unknown): string { return String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!)); }
++const icon=(name:string)=>`<svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${name==='browser'?'<rect x="4" y="6" width="32" height="23" rx="3"/><path d="M13 35h14M20 29v6M4 13h32"/>':name==='proxy'?'<path d="M11 30a8 8 0 0 1-1-16 11 11 0 0 1 21-1 9 9 0 0 1-1 17Z"/>':'<rect x="7" y="4" width="26" height="13" rx="3"/><rect x="7" y="23" width="26" height="13" rx="3"/><path d="M12 10h2m4 0h10M12 29h2m4 0h10"/>'}</svg>`;
++export function statusMarkup(code:string, details:StatusDetails={}, maintenance=false):string {
++  const n=Number(code), entry=errorCatalog[n]??errorCatalog[n<500?400:500];
++  const title=maintenance?statusMessages.maintenance.title:entry.title;
++  const source=details.source??'app';
++  const host=details.host||'Host unavailable';
++  const origin=maintenance?'Not checked':n===404?'Resource not found':source==='proxy'&&n>=500?'Connection or response error':source==='app'&&n>=500?'Application error':'Unavailable';
++  const node=(name:string,label:string,sub:string,state:string,tone:string)=>`<section class="status-node">${icon(name)}<h3>${label}</h3><p>${escapeHtml(sub)}</p><span class="status-badge status-${tone}">${state}</span></section>`;
++  return `<main lang="en" class="status-page" data-status-code="${escapeHtml(code)}" aria-labelledby="status-title"><style>${statusStyles}</style><a class="status-skip" href="#status-title">Skip to content</a><div class="status-wrap"><header class="status-brand"><span class="status-wordmark">${escapeHtml(APP_NAME)}</span><span class="status-brand-subtitle" lang="en">REQUEST DIAGNOSTICS</span><span class="status-full-name">${escapeHtml(APP_FULL_NAME)}</span></header><div class="status-header"><p class="status-code"><span class="status-protocol">${maintenance?'MAINTENANCE / ':''}HTTP STATUS</span><span class="status-designation">${escapeHtml(code)}</span></p><h2 id="status-title" tabindex="-1">${escapeHtml(title)}</h2><p class="status-message">${escapeHtml(maintenance?statusMessages.maintenance.message:entry.reason)}</p><time class="status-time">${escapeHtml(details.timeLabel||'Event time (UTC)')}: <span data-meta="timestamp">${escapeHtml(details.timestamp||'Unavailable')}</span></time></div><div class="status-chain" aria-label="Request processing status">${node('browser','Browser','Client request','Request received','ok')}${node('proxy','Proxy',source==='proxy'?(details.proxyLabel||'Proxy handling this request'):'Proxy diagnostics unavailable',maintenance&&source==='proxy'?'Under maintenance':source==='proxy'?'Response generated':'Unavailable',source==='proxy'&&!maintenance?'ok':'unknown')}${node('server','Origin server',host,origin,maintenance?'unknown':n>=500||n===404?'error':'unknown')}</div><p class="status-note">These states describe this request. They are not live health checks of the entire browser or network.</p><section class="status-explainer"><div><h3>What happened?</h3><p>${escapeHtml(maintenance?'The operator enabled maintenance mode and temporarily paused request processing.':entry.reason)}</p><details class="status-owner"><summary>For site operators</summary><p>${escapeHtml(maintenance?'After maintenance, disable MAINTENANCE_MODE and confirm the proxy configuration has been applied.':entry.owner)}</p></details></div><div><h3>What can I do?</h3><p>${escapeHtml(maintenance?'Try again later.':entry.visitor)}</p><div class="status-actions"><button type="button" class="status-action" data-action="retry">Retry</button><a class="status-action status-secondary" href="/">Home</a><button type="button" class="status-action status-secondary" data-action="copy">Copy diagnostics</button></div><p class="status-notice" data-copy-status role="status" aria-live="polite"></p><textarea class="status-copybox" data-copybox aria-label="Diagnostics to copy" readonly hidden></textarea></div></section><footer class="status-footer"><div class="status-meta"><p>${escapeHtml(details.idLabel||'Request ID')}: <code data-meta="requestId">${escapeHtml(details.requestId||'Unavailable')}</code></p><p>Request host: <span data-meta="host">${escapeHtml(host)}</span></p><p hidden>Request path: <span data-meta="path">${escapeHtml(details.path||'/')}</span></p><details class="status-ip"><summary>Show my IP address</summary><code data-meta="clientIp">${escapeHtml(details.clientIp||'Unavailable')}</code></details>${details.digest?`<p>Error reference: <code data-meta="digest">${escapeHtml(details.digest)}</code></p>`:''}</div><div class="status-feedback"><span>Was this page helpful?</span><button type="button" class="status-action status-secondary" data-vote="yes">Yes</button><button type="button" class="status-action status-secondary" data-vote="no">No</button></div><p class="status-notice" data-feedback-status role="status" aria-live="polite"></p><noscript><p>Expand the IP section to view your address. Refresh the browser to retry. Copy and feedback require JavaScript.</p></noscript><p class="status-note">Copied diagnostics exclude your IP address and URL query. Feedback sends only the request ID, error code, and your answer.</p></footer></div></main>`;
++}
++/** All dependencies are local so the same function can be shipped as a CSP-hashed inline script. */
++export function bindStatusPage(root:HTMLElement|null, reset?:()=>void):()=>void {
++  if(!root)return ()=>{};
++  const click=async(event:Event)=>{
++    const button=(event.target as Element).closest<HTMLButtonElement>('button');
++    if(!button||!root.contains(button))return;
++    const meta=(name:string)=>root.querySelector(`[data-meta="${name}"]`)?.textContent||'';
++    if(button.dataset.action==='retry'){if(reset)reset();else window.location.reload();return;}
++    if(button.dataset.action==='copy'){
++      const text=[`HTTP ${root.dataset.statusCode}`,`Request ID: ${meta('requestId')}`,`UTC: ${meta('timestamp')}`,`Host: ${meta('host')}`,`Path: ${meta('path')}`,meta('digest')?`Error reference: ${meta('digest')}`:''].filter(Boolean).join('\n');
++      const notice=root.querySelector<HTMLElement>('[data-copy-status]')!;
++      try{await navigator.clipboard.writeText(text);notice.textContent='Diagnostics copied.';}
++      catch{const box=root.querySelector<HTMLTextAreaElement>('[data-copybox]')!;box.hidden=false;box.value=text;box.focus();box.select();notice.textContent='Automatic copying is unavailable. Copy the selected text manually.';}
++    }
++    if(button.dataset.vote){
++      const notice=root.querySelector<HTMLElement>('[data-feedback-status]')!;
++      const buttons=root.querySelectorAll<HTMLButtonElement>('[data-vote]');
++      buttons.forEach(b=>b.disabled=true);
++      try{
++        const requestId=meta('requestId');
++        if(!/^[0-9a-f-]{36}$/i.test(requestId))throw new Error('unavailable');
++        const r=await fetch('/api/error-feedback',{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId,code:Number(root.dataset.statusCode),helpful:button.dataset.vote==='yes'}),signal:AbortSignal.timeout(8000)});
++        if(!r.ok)throw new Error('unavailable');
++        notice.textContent='Feedback saved. Thank you.';
++      }catch{notice.textContent='Feedback could not be saved. Please try again later.';buttons.forEach(b=>b.disabled=false);}
++    }
++  };
++  root.addEventListener('click',click);return ()=>root.removeEventListener('click',click);
++}
++export const statusScript=`(${bindStatusPage.toString()})(document.querySelector('.status-page'));`;
++export function statusHtml(kind:keyof typeof statusMessages, code?:string, details:StatusDetails={}):string {
++  const value=code??statusMessages[kind].code;
++  const title=kind==='maintenance'?statusMessages.maintenance.title:(errorCatalog[Number(value)]??errorCatalog[Number(value)<500?400:500]).title;
++  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escapeHtml(title)} | ${escapeHtml(APP_NAME)}</title></head><body style="margin:0">${statusMarkup(value,details,kind==='maintenance')}<script>${statusScript}</script></body></html>`;
++}
++export function maintenanceEnabled(value=process.env.MAINTENANCE_MODE):boolean{return value==='1'||value?.toLowerCase()==='true';}
++export const statusHeaders={'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer'};
++export function upstreamErrorResponses(){return [{match:{status_code:[4,5],headers:{'Content-Type':['text/html*']}},routes:[{handle:[{handler:'error',status_code:'{http.reverse_proxy.status_code}',error:'Upstream request failed'}]}]}];}
+diff --git a/src/lib/status-response.ts b/src/lib/status-response.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1c15d2a3a4412330f0c75ced7020ba3e7a268a87
+--- /dev/null
++++ b/src/lib/status-response.ts
+@@ -0,0 +1,6 @@
++import {createHash, randomUUID} from 'node:crypto';
++import {statusHeaders,statusScript,type StatusDetails} from './status-pages';
++export function responseHeaders(){return {...statusHeaders,'Content-Security-Policy':`default-src 'none'; script-src 'sha256-${createHash('sha256').update(statusScript).digest('base64')}'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`};}
++export function requestDetails(headers:Headers,host:string,path:string):StatusDetails {
++  return {requestId:headers.get('x-cpm-request-id')||randomUUID(),timestamp:headers.get('x-cpm-request-time')||new Date().toISOString(),host,path,source:'app'};
++}
+diff --git a/tests/browser/status-pages.ts b/tests/browser/status-pages.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f55b457007cd6adbf779f9e2d62899cb9ef7f589
+--- /dev/null
++++ b/tests/browser/status-pages.ts
+@@ -0,0 +1,38 @@
++import {chromium,expect} from '@playwright/test';
++import {caddyStatusRoute,defaultErrorRoutes,feedbackProxyRoute} from '../../src/lib/caddy-status';
++import {upstreamErrorResponses} from '../../src/lib/status-pages';
++const received:unknown[]=[];let rejectFeedback=false;
++const upstream=Bun.serve({hostname:'127.0.0.1',port:8788,async fetch(req){
++ if(new URL(req.url).pathname==='/api/error-feedback'){received.push(await req.json());return Response.json({saved:!rejectFeedback},{status:rejectFeedback?503:200});}
++ const json=new URL(req.url).pathname.endsWith('json');return new Response(json?' {"original":true}':'original upstream html',{status:502,headers:{'Content-Type':json?'application/json':'text/html'}});
++}});
++const server={listen:['127.0.0.1:8787'],routes:[feedbackProxyRoute('127.0.0.1:8788'),{...caddyStatusRoute(503,'maintenance'),match:[{path:['/maintenance']}]},{match:[{path:['/error']}],handle:[{handler:'error',status_code:502,error:'test'}]},{match:[{path:['/unknown']}],handle:[{handler:'error',status_code:418,error:'test'}]},{match:[{path:['/upstream-*']}],handle:[{handler:'reverse_proxy',upstreams:[{dial:'127.0.0.1:8788'}],handle_response:upstreamErrorResponses()}]},caddyStatusRoute(404,'notFound')],errors:{routes:defaultErrorRoutes()}};
++await Bun.write('/tmp/status-browser-caddy.json',JSON.stringify({admin:{disabled:true},apps:{http:{servers:{test:server}}}}));
++const caddy=Bun.spawn(['/usr/local/bin/caddy','run','--config','/tmp/status-browser-caddy.json'],{stdout:Bun.file('/tmp/status-browser-caddy.log'),stderr:Bun.file('/tmp/status-browser-caddy-errors.log'),env:{...process.env,CPM_TEST_TEMPLATE_SECRET:'template-secret-must-not-render'}});
++let browser;
++try{
++ for(let i=0;i<100;i++){try{await fetch('http://127.0.0.1:8787');break;}catch{await Bun.sleep(50);}}
++ browser=await chromium.launch({headless:true,args:['--no-sandbox']});
++ const context=await browser.newContext({viewport:{width:1280,height:1000},permissions:['clipboard-read','clipboard-write']});
++ const page=await context.newPage();const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
++ const response=await page.goto('http://127.0.0.1:8787/error?token=do-not-copy');expect(response?.status()).toBe(502);
++ await expect(page.locator('.status-node')).toHaveCount(3);
++ const requestId=await page.locator('[data-meta="requestId"]').innerText();expect(requestId).toMatch(/^[0-9a-f-]{36}$/);expect(response?.headers()['x-request-id']).toBe(requestId);
++ await expect(page.locator('[data-meta="clientIp"]')).not.toBeVisible();await page.getByText('Show my IP address',{exact:true}).click();await expect(page.locator('[data-meta="clientIp"]')).toBeVisible();await expect(page.locator('[data-meta="clientIp"]')).toHaveText('127.0.0.1');await expect(page.locator('[data-meta="path"]')).toHaveText('/error');
++ await page.getByRole('button',{name:'Copy diagnostics'}).click();await expect(page.locator('[data-copy-status]')).toContainText('copied');
++ const copied=await page.evaluate(()=>navigator.clipboard.readText());expect(copied).toContain(requestId);expect(copied).not.toContain('do-not-copy');expect(copied).not.toContain('Client IP');
++ await page.getByRole('button',{name:'Yes',exact:true}).click();await expect(page.locator('[data-feedback-status]')).toContainText('saved');expect(received[0]).toEqual({requestId,code:502,helpful:true});
++ await page.getByText('For site operators',{exact:true}).click();await page.screenshot({path:'/artifacts/error-desktop.png',fullPage:true});
++ rejectFeedback=true;await page.reload();await page.getByRole('button',{name:'No',exact:true}).click();await expect(page.locator('[data-feedback-status]')).toContainText('could not be saved');await expect(page.getByRole('button',{name:'No',exact:true})).toBeEnabled();
++ await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:()=>Promise.reject(new Error('denied'))}}));await page.getByRole('button',{name:'Copy diagnostics'}).click();await expect(page.locator('[data-copybox]')).toBeVisible();
++ await page.setViewportSize({width:390,height:844});await page.reload();expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);await page.screenshot({path:'/artifacts/error-mobile.png',fullPage:true});
++ await page.emulateMedia({contrast:'more'});expect(await page.locator('.status-page').evaluate(el=>getComputedStyle(el).backgroundColor)).toBe('rgb(19, 20, 22)');await page.emulateMedia({contrast:'no-preference'});
++ const before=await page.locator('[data-meta="requestId"]').innerText();await page.getByRole('button',{name:'Retry',exact:true}).click();await expect(page.locator('[data-meta="requestId"]')).not.toHaveText(before);
++ expect((await page.goto('http://127.0.0.1:8787/maintenance'))?.status()).toBe(503);await expect(page.locator('#status-title')).toHaveText('Maintenance in progress');await expect(page.locator('.status-chain')).toContainText('Not checked');
++ expect((await page.goto('http://127.0.0.1:8787/unknown'))?.status()).toBe(418);await expect(page.locator('.status-code')).toContainText('418');
++ const malicious='/'+encodeURIComponent('{{env "CPM_TEST_TEMPLATE_SECRET"}}<script>alert(1)</script>');await page.goto('http://127.0.0.1:8787'+malicious);expect(await page.content()).not.toContain('template-secret-must-not-render');expect(errors).toEqual([]);
++ const json=await fetch('http://127.0.0.1:8787/upstream-json');expect(json.status).toBe(502);expect(await json.json()).toEqual({original:true});
++ expect((await page.goto('http://127.0.0.1:8787/upstream-html'))?.status()).toBe(502);await expect(page.locator('.status-chain')).toBeVisible();
++ const nojs=await browser.newContext({javaScriptEnabled:false});const plain=await nojs.newPage();await plain.goto('http://127.0.0.1:8787/error');await plain.getByText('Show my IP address',{exact:true}).click();await expect(plain.locator('[data-meta="clientIp"]')).toBeVisible();await expect(plain.locator('noscript')).toBeVisible();
++ console.log('PASS: Caddy status/metadata, CSP script, reveal IP, clipboard + fallback, persisted-feedback transport + failure, retry, mobile layout, no-JS, template injection, JSON passthrough');
++}finally{await browser?.close();caddy.kill();await caddy.exited;upstream.stop(true);}
+diff --git a/tests/runtime/error-feedback.test.ts b/tests/runtime/error-feedback.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..af92673789d2a168d7c1009e6c993d7d2d133436
+--- /dev/null
++++ b/tests/runtime/error-feedback.test.ts
+@@ -0,0 +1,23 @@
++import {expect,test,mock} from 'bun:test';
++import {NextRequest} from 'next/server';
++process.env.ERROR_FEEDBACK_PATH=':memory:';
++mock.module('../../src/lib/auth',()=>({auth:async()=>null}));
++const {POST,GET}=await import('../../app/api/error-feedback/route');
++const {saveFeedback,validFeedback}=await import('../../src/lib/error-feedback');
++const payload=()=>({requestId:crypto.randomUUID(),code:502,helpful:true});
++const request=(body:string,origin='https://example.test')=>new NextRequest('https://example.test/api/error-feedback',{method:'POST',headers:{host:'example.test',origin,'content-type':'application/json'},body});
++test('persists feedback, deduplicates IDs, and enforces a shared rate limit',()=>{
++ const value=payload();expect(saveFeedback(value,1000)).toBe('saved');expect(saveFeedback(value,1000)).toBe('duplicate');
++ for(let i=1;i<100;i++)expect(saveFeedback(payload(),1000)).toBe('saved');
++ expect(saveFeedback(payload(),1000)).toBe('limited');expect(saveFeedback(payload(),1061)).toBe('saved');
++});
++test('rejects malformed, cross-origin, oversized and unprivileged reads',async()=>{
++ expect(validFeedback({...payload(),clientIp:'1.2.3.4'})).toBe(false);
++ expect((await POST(request('{}'))).status).toBe(400);
++ expect((await POST(request(JSON.stringify(payload()),'https://evil.test'))).status).toBe(403);
++ expect((await POST(request('x'.repeat(2049)))).status).toBe(413);
++ expect((await GET(new NextRequest('https://example.test/api/error-feedback'))).status).toBe(403);
++});
++test('acknowledges a saved vote only after server-side persistence',async()=>{
++ const value=payload();expect((await POST(request(JSON.stringify(value)))).status).toBe(200);expect(saveFeedback(value)).toBe('duplicate');
++});
+diff --git a/tests/runtime/instance-profiles.ts b/tests/runtime/instance-profiles.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..a225a79e0258e2226a2cfbab85207a0882bdedc8
+--- /dev/null
++++ b/tests/runtime/instance-profiles.ts
+@@ -0,0 +1,8 @@
++import assert from "node:assert/strict";
++import { buildAnubisGate } from "../../src/lib/caddy-anubis";
++assert.equal(buildAnubisGate(undefined), null);
++assert.equal(buildAnubisGate(""), null);
++const gate = buildAnubisGate("example.test")!;
++assert.ok(gate.routes.length > 0);
++assert.deepEqual(gate.successServer.listen, ["127.0.0.1:8924"]);
++console.log("PASS: internal profile disables Anubis; public profile enables its private responder");
+diff --git a/tests/runtime/maintenance-proxy.test.ts b/tests/runtime/maintenance-proxy.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..f767c10fa0dd20a7e15ba9e610ad3372d79b62a7
+--- /dev/null
++++ b/tests/runtime/maintenance-proxy.test.ts
+@@ -0,0 +1,39 @@
++import { expect, test, mock, afterEach } from "bun:test";
++import { NextRequest } from "next/server";
++mock.module("../../src/lib/auth", () => ({ auth: async () => null }));
++const { default: proxy } = await import("../../proxy");
++const originalMode = process.env.MAINTENANCE_MODE;
++afterEach(() => {
++  if (originalMode === undefined) delete process.env.MAINTENANCE_MODE;
++  else process.env.MAINTENANCE_MODE = originalMode;
++});
++test("maintenance returns 503 for pages, API writes, and HEAD without redirecting", async () => {
++  process.env.MAINTENANCE_MODE = "1";
++  const page = await proxy(new NextRequest("https://example.test/login"));
++  expect(page.status).toBe(503);
++  expect(page.headers.get("retry-after")).toBe("300");
++  expect(page.headers.get("cache-control")).toBe("no-store");
++  expect(await page.text()).toContain("Maintenance in progress");
++  const api = await proxy(new NextRequest("https://example.test/api/v1/hosts", {method:"POST"}));
++  expect(api.status).toBe(503);
++  expect((await api.json()).code).toBe("MAINTENANCE");
++  const head = await proxy(new NextRequest("https://example.test/", {method:"HEAD"}));
++  expect(head.status).toBe(503);
++  expect(await head.text()).toBe("");
++});
++test("maintenance preserves health probes and can be disabled", async () => {
++  process.env.MAINTENANCE_MODE = "true";
++  expect((await proxy(new NextRequest("https://example.test/api/health"))).status).toBe(200);
++  process.env.MAINTENANCE_MODE = "0";
++  expect((await proxy(new NextRequest("https://example.test/login"))).status).toBe(200);
++  expect((await proxy(new NextRequest("https://example.test/"))).status).toBe(307);
++});
++
++test("only the two bundled font files are public for safe read methods", async () => {
++  process.env.MAINTENANCE_MODE = "0";
++  for (const path of ["/fonts/barlow-condensed-bold.ttf", "/fonts/ibm-plex-mono.ttf"]) {
++    for (const method of ["GET", "HEAD"]) expect((await proxy(new NextRequest("https://example.test" + path, {method}))).status).toBe(200);
++    expect((await proxy(new NextRequest("https://example.test" + path, {method:"POST"}))).status).toBe(307);
++  }
++  for (const path of ["/fonts/private.json", "/fonts/barlow-condensed-bold.ttf/extra", "/settings"]) expect((await proxy(new NextRequest("https://example.test" + path))).status).toBe(307);
++});
+diff --git a/tests/runtime/status-pages.test.ts b/tests/runtime/status-pages.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..265c09fde6ac1df05041b372575ebbedc0436da9
+--- /dev/null
++++ b/tests/runtime/status-pages.test.ts
+@@ -0,0 +1,26 @@
++import {expect,test} from 'bun:test';
++import {createHash} from 'node:crypto';
++import {maintenanceEnabled,statusHtml,statusHeaders,statusScript,upstreamErrorResponses,errorCatalog} from '../../src/lib/status-pages';
++import {responseHeaders} from '../../src/lib/status-response';
++import {caddyStatusRoute,defaultErrorRoutes} from '../../src/lib/caddy-status';
++test('maintenance requires an explicit enabled value',()=>{for(const v of ['1','true','TRUE'])expect(maintenanceEnabled(v)).toBe(true);for(const v of ['0','false','','yes'])expect(maintenanceEnabled(v)).toBe(false);});
++test('self-contained interaction script is explicitly allowed by the CSP hash',()=>{
++ const html=statusHtml('error','502');expect(html).toContain('lang="en"');expect(html).toContain('data-action="copy"');expect(html).toContain('<details class="status-ip">');expect(html).not.toContain('src="http');
++ const hash=createHash('sha256').update(statusScript).digest('base64');expect(responseHeaders()['Content-Security-Policy']).toContain(`script-src 'sha256-${hash}'`);expect(statusHeaders['Cache-Control']).toBe('no-store');
++});
++test('request data cannot inject markup or executable code',()=>{
++ const attack='</code><script>alert(1)</script><img src=x onerror=alert(1)>';
++ const html=statusHtml('error','502',{host:attack,path:attack,requestId:attack,clientIp:attack,timestamp:attack});
++ expect(html).not.toContain('<script>alert(1)');expect(html).not.toContain('<img src=x');expect(html).toContain('&lt;script&gt;');
++});
++test('errors have distinct guidance and unknown infrastructure is not marked working',()=>{
++ for(const code of Object.keys(errorCatalog)){const html=statusHtml('error',code);expect(html).toContain(`<span class="status-designation">${code}</span>`);expect(html).toContain('For site operators');}
++ expect(statusHtml('error','500',{source:'app'})).toContain('Proxy diagnostics unavailable');
++ expect(statusHtml('maintenance')).toContain('Not checked');
++ expect(statusHtml('error','502')).not.toContain('HTTP 521, indicating a refused connection');
++});
++test('only generated Caddy pages use escaped templates, preserving status',()=>{
++ const route=caddyStatusRoute(502,'error',true);expect(route.match).toEqual([{expression:'{http.error.status_code} == 502'}]);
++ expect(JSON.stringify(route)).toContain('http.request.uuid');expect(JSON.stringify(route)).toContain('| html');expect(defaultErrorRoutes().length).toBeGreaterThan(15);
++ expect(upstreamErrorResponses()[0].match).toEqual({status_code:[4,5],headers:{'Content-Type':['text/html*']}});
++});
+diff --git a/tests/unit/caddy-default-response.test.ts b/tests/unit/caddy-default-response.test.ts
+index c8cdd03e604a03fc7950aa7ea8b1cb6589d252d5..4f0a213c42930526f1adcb8ad2e82e2bc7ff0e2b 100644
+--- a/tests/unit/caddy-default-response.test.ts
++++ b/tests/unit/caddy-default-response.test.ts
+@@ -42,6 +42,24 @@ function cpmServer(document: unknown): CpmServer | undefined {
+     .apps?.http?.servers?.cpm;
+ }
+ 
++// TOMORI prepends non-terminal request telemetry before host/default routing.
++function applicationRoutes(server: CpmServer | undefined): Array<Record<string, unknown>> {
++  const routes = server?.routes ?? [];
++  expect(routes[0]).toMatchObject({ handle: [
++    { handler: "log_append", key: "request_id" },
++    { handler: "headers" },
++  ] });
++  expect(routes[0].terminal).toBeUndefined();
++  return routes.slice(1);
++}
++
++function expectNotFound(route: Record<string, unknown> | undefined) {
++  expect(route).toMatchObject({ terminal: true, handle: [
++    { handler: "templates" },
++    { handler: "static_response", status_code: 404 },
++  ] });
++}
++
+ async function seedAdminAndHost() {
+   const now = new Date().toISOString();
+   await ctx.db.insert(schema.users).values({
+@@ -143,8 +161,10 @@ describe("default response validation and route builder", () => {
+ });
+ 
+ describe("buildCaddyDocument default response", () => {
+-  it("preserves the current no-server document when there are no hosts or setting", async () => {
+-    expect(cpmServer(await buildCaddyDocument())).toBeUndefined();
++  it("serves the TOMORI 404 when there are no hosts or setting", async () => {
++    const routes = applicationRoutes(cpmServer(await buildCaddyDocument()));
++    expect(routes).toHaveLength(1);
++    expectNotFound(routes[0]);
+   });
+ 
+   it("creates the HTTP server for a custom response even with zero proxy hosts", async () => {
+@@ -157,7 +177,7 @@ describe("buildCaddyDocument default response", () => {
+ 
+     const server = cpmServer(await buildCaddyDocument());
+     expect(server?.listen).toEqual([":80"]);
+-    expect(server?.routes).toEqual([{
++    expect(applicationRoutes(server)).toEqual([{
+       handle: [{
+         handler: "static_response",
+         status_code: 404,
+@@ -172,7 +192,7 @@ describe("buildCaddyDocument default response", () => {
+     await seedAdminAndHost();
+     await saveDefaultResponseSettings({ mode: "respond", status: 403, body: "Forbidden" });
+ 
+-    const routes = cpmServer(await buildCaddyDocument())?.routes ?? [];
++    const routes = applicationRoutes(cpmServer(await buildCaddyDocument()));
+     expect(routes.length).toBeGreaterThan(1);
+     expect(routes.slice(0, -1).every((route) => route.match !== undefined)).toBe(true);
+     expect(JSON.stringify(routes.slice(0, -1))).toContain("known.example.test");
+@@ -182,13 +202,14 @@ describe("buildCaddyDocument default response", () => {
+     });
+   });
+ 
+-  it("does not append a catch-all route when mode is reset to caddy", async () => {
++  it("restores the TOMORI 404 fallback when mode is reset to caddy", async () => {
+     await seedAdminAndHost();
+     await saveDefaultResponseSettings({ mode: "caddy" });
+ 
+-    const routes = cpmServer(await buildCaddyDocument())?.routes ?? [];
++    const routes = applicationRoutes(cpmServer(await buildCaddyDocument()));
+     expect(routes.length).toBeGreaterThan(0);
+-    expect(routes.every((route) => route.match !== undefined)).toBe(true);
++    expect(routes.slice(0, -1).every((route) => route.match !== undefined)).toBe(true);
++    expectNotFound(routes.at(-1));
+     expect(JSON.stringify(routes)).toContain("known.example.test");
+   });
+ });
+diff --git a/tests/unit/caddy-location-rules.test.ts b/tests/unit/caddy-location-rules.test.ts
+index 8e1942274be6c9d240304d8988b41e174a2d6a3a..523260ce52d90602531ddb82ff753b08e5bcc385 100644
+--- a/tests/unit/caddy-location-rules.test.ts
++++ b/tests/unit/caddy-location-rules.test.ts
+@@ -18,7 +18,7 @@ describe('buildLocationReverseProxy', () => {
+     );
+ 
+     expect(safePath).toBe('/api/*');
+-    expect(reverseProxyHandler).toEqual({
++    expect(reverseProxyHandler).toMatchObject({
+       handler: 'reverse_proxy',
+       upstreams: [{ dial: 'backend:3000' }],
+     });
