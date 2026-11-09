@@ -1,0 +1,126 @@
+From 6d3a24b62969a4413d2731b866a86c53f592dff1 Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Mon, 9 Nov 2026 12:34:20 +0900
+Subject: [PATCH 4/9] feat: simplify proxy host protection and certificate
+ presentation
+
+From: Codex <codex@localhost>
+
+Keep host rows vertically aligned and replace repeated Anubis switches and helper text with compact status actions. Bound the search field and show long-lived certificate identity and expiry dates instead of thousands of days. Preserve transactional protection changes and accessible button state. TypeScript and focused host rendering and Anubis tests passed.
+---
+ app/(dashboard)/proxy-hosts/ProxyHostsClient.tsx | 15 +++++++++------
+ app/(dashboard)/proxy-hosts/host-parts.tsx       |  8 +++++---
+ src/components/anubis/AnubisToggle.tsx           | 14 +++++++++++++-
+ 3 files changed, 27 insertions(+), 10 deletions(-)
+
+diff --git a/app/(dashboard)/proxy-hosts/ProxyHostsClient.tsx b/app/(dashboard)/proxy-hosts/ProxyHostsClient.tsx
+index cc41a505cac1ebeb4f107bf2a255ec73e69028bd..259469413de18102e3371cc1c04c2934c67761fe 100644
+--- a/app/(dashboard)/proxy-hosts/ProxyHostsClient.tsx
++++ b/app/(dashboard)/proxy-hosts/ProxyHostsClient.tsx
+@@ -631,7 +631,7 @@ export default function ProxyHostsClient({
+         <>
+           <div className="flex flex-wrap items-center gap-2.5">
+             <ListSearchField
+-              className="flex-[1_1_280px]"
++              className="w-full flex-none lg:max-w-md"
+               value={searchTerm}
+               onChange={handleSearchChange}
+               placeholder="Domain, upstream or tag"
+@@ -826,7 +826,7 @@ export default function ProxyHostsClient({
+                           )}
+                           <tr
+                             className={cn(
+-                              "border-b border-line align-top last:border-b-0 hover:bg-panel2",
++                              "border-b border-line align-middle last:border-b-0 hover:bg-panel2",
+                               isSelected && "bg-brand-tint hover:bg-brand-tint",
+                               !row.enabled && "text-muted-foreground"
+                             )}
+@@ -857,8 +857,11 @@ export default function ProxyHostsClient({
+                               </td>
+                             )}
+                             <td className="px-2.5 py-3">
+-                              <ProtectionPills protections={row.protections} />
+-                              {canWrite && hosts.find(host => host.id === row.id) && <AnubisToggle initial={anubis} host={hosts.find(host => host.id === row.id)!} />}
++                              <div className="flex flex-wrap items-center gap-2">
++                              {row.protections.length > 0 && <ProtectionPills protections={row.protections} />}
++                              {canWrite && hosts.find(host => host.id === row.id) && <AnubisToggle compact initial={anubis} host={hosts.find(host => host.id === row.id)!} />}
++                              {!canWrite && row.protections.length === 0 && <span className="text-soft">—</span>}
++                              </div>
+                             </td>
+                             <td className="whitespace-nowrap px-2.5 py-3">
+                               <CertificateSummary certificate={row.certificate} />
+@@ -906,8 +909,8 @@ export default function ProxyHostsClient({
+                             <ErrorRate row={row} /> 5xx
+                           </span>
+                         )}
+-                        <ProtectionPills protections={row.protections} />
+-                              {canWrite && hosts.find(host => host.id === row.id) && <AnubisToggle initial={anubis} host={hosts.find(host => host.id === row.id)!} />}
++                        {row.protections.length > 0 && <ProtectionPills protections={row.protections} />}
++                              {canWrite && hosts.find(host => host.id === row.id) && <AnubisToggle compact initial={anubis} host={hosts.find(host => host.id === row.id)!} />}
+                         {row.tags.length > 0 && <TagChips tags={row.tags} />}
+                       </div>
+                       <div className="shrink-0">{actionsMenu(row)}</div>
+diff --git a/app/(dashboard)/proxy-hosts/host-parts.tsx b/app/(dashboard)/proxy-hosts/host-parts.tsx
+index 803ea4d07c78f1c51c76031d43e03c8c39a3de30..98d22e4a1a693d912a070a48a72f50cfe8b242a7 100644
+--- a/app/(dashboard)/proxy-hosts/host-parts.tsx
++++ b/app/(dashboard)/proxy-hosts/host-parts.tsx
+@@ -6,7 +6,6 @@
+  */
+ import { StatusDot, type StatusTone } from "@/components/ui/StatusDot";
+ import { ProtectionPill } from "@/components/ui/ProtectionPill";
+-import { formatDayUtc } from "@/components/ui/chart-format";
+ import { cn } from "@/lib/utils";
+ import { useFormat } from "@/src/components/preferences/PreferencesProvider";
+ import {
+@@ -84,14 +83,17 @@ export function CertificateSummary({ certificate }: { certificate: HostCertifica
+   const tone = certificateTone(certificate);
+   let headline: string;
+   if (certificate.renewal === "expired") headline = "Expired";
+-  else if (certificate.daysLeft !== null) headline = `${certificate.daysLeft} ${certificate.daysLeft === 1 ? "day" : "days"}`;
++  else if (certificate.daysLeft !== null) headline = certificate.daysLeft <= 30 ? `${certificate.daysLeft} ${certificate.daysLeft === 1 ? "day" : "days"} left` : certificate.kind === "imported" && /cloudflare/i.test(certificate.issuer ?? "") ? "Origin CA" : certificate.issuer ?? "Valid certificate";
+   else if (certificate.renewal === "inactive") headline = "Host disabled";
+   else if (certificate.renewal === "missing") headline = "Not issued";
+   else if (certificate.renewal === "pending") headline = "Obtaining";
+   else headline = "Not read yet";
+   const issuer = certificate.issuer ?? (certificate.kind === "imported" ? "Imported" : "ACME");
+   const parts = [issuer];
+-  if (certificate.validTo) parts.push(formatDayUtc(Date.parse(certificate.validTo)));
++  if (certificate.validTo) {
++    parts.length = 0;
++    parts.push(`Expires ${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(certificate.validTo))}`);
++  }
+   const renewal = ["due", "overdue", "replace_soon"].includes(certificate.renewal) ? RENEWAL_LABELS[certificate.renewal] : null;
+   return (
+     <span className="flex flex-col">
+diff --git a/src/components/anubis/AnubisToggle.tsx b/src/components/anubis/AnubisToggle.tsx
+index 4a465933e2038414106db5a44e2bbdc3e83d7e2b..c6b136ef03bad5c6df20892e54f6ff0a12c47fe0 100644
+--- a/src/components/anubis/AnubisToggle.tsx
++++ b/src/components/anubis/AnubisToggle.tsx
+@@ -10,7 +10,7 @@ import { inAnubisScope, type AnubisStatus } from "@/src/lib/anubis-policy";
+ 
+ type Host = { id: number; name: string; domains: string[]; enabled: boolean; anubisEnabled?: boolean };
+ 
+-export function AnubisToggle({ initial, host }: { initial?: AnubisStatus; host?: Host }) {
++export function AnubisToggle({ initial, host, compact = false }: { initial?: AnubisStatus; host?: Host; compact?: boolean }) {
+   const router = useRouter();
+   const controlId = useId();
+   const [status, setStatus] = useState<AnubisStatus | null>(initial ?? null);
+@@ -63,6 +63,18 @@ export function AnubisToggle({ initial, host }: { initial?: AnubisStatus; host?:
+     finally { setPending(false); }
+   }
+ 
++  if (compact && host) {
++    return <span className="inline-flex flex-col gap-1">
++      {available ? <button type="button" aria-label={label} aria-pressed={effective} disabled={pending}
++        title={note} onClick={() => change(!enabled)}
++        className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-line px-2 text-xs font-medium text-soft transition-colors hover:border-brand hover:text-foreground focus-visible:outline-2 focus-visible:outline-brand disabled:opacity-50">
++        <span aria-hidden="true" className={effective ? "size-1.5 rounded-full bg-brand" : "size-1.5 rounded-full bg-soft/50"} />
++        Anubis <span className={effective ? "text-foreground" : "text-soft"}>{pending ? "Applying…" : effective ? "On" : "Off"}</span>
++      </button> : <span className="text-xs text-soft" title={note}>Anubis unavailable</span>}
++      {error && <span role="alert" className="max-w-56 text-xs text-destructive">{error}</span>}
++    </span>;
++  }
++
+   return <div className={host ? "flex max-w-56 flex-col gap-1" : "flex flex-col gap-3"}>
+     <div className="flex items-center gap-2">
+       {host ? (

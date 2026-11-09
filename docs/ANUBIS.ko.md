@@ -71,3 +71,56 @@ CI는 앱·API·UI 테스트, 네 컴포넌트 이미지 빌드와 실제 Anubis
 
 참고: [Anubis v1.27.0 실행 옵션](https://github.com/TecharoHQ/anubis/blob/v1.27.0/cmd/anubis/main.go),
 [Anubis v1.27.0 정책](https://github.com/TecharoHQ/anubis/blob/v1.27.0/docs/docs/admin/policies.mdx).
+
+## SSO의 비공개 릴레이 호환성
+
+PCPM의 `ANUBIS_ROAMING_HOST`는 `SSO_HOST`로 설정한다. Caddy는 이 호스트에 대해서만
+챌린지 토큰의 검증 값을 `sso:`와 User-Agent의 결합으로 계산한다. 추가 허용 호스트 외에는 기존
+클라이언트 IP를 사용한다. 실제 `X-Real-IP`와 `X-Forwarded-For`는 변경하지 않는다.
+
+Anubis의 `JWT_RESTRICTION_HEADER`는 `X-Cpm-Anubis-Binding`으로 설정한다. Caddy가
+챌린지 리소스와 인증 검사 요청 모두에서 이 헤더를 덮어쓰므로 클라이언트가 보낸 값은
+검증에 사용되지 않는다. 두 설정은 함께 배포해야 한다. 관리 서비스가 Caddy 설정을
+다시 생성해도 호스트 제한과 헤더 계산을 유지한다.
+
+이 설정은 SSO의 챌린지 쿠키에 적용되던 IP 제한을 완화한다. 서명, 만료, 정책 규칙,
+User-Agent 검증과 authentik 인증은 유지한다. 유효한 쿠키가 탈취되면 동일한 User-Agent를
+사용하는 다른 IP에서도 재사용될 수 있다. User-Agent는 인증 자격 증명이 아니다.
+추가 허용 호스트 외의 IP 제한과 SSO의 비인증 요청에 대한 챌린지는 유지한다.
+
+PCPM 웹 이미지 기본값은 `cpm-web:grafana-proxy-20260922`이다. 이후 이미지 교체 시
+`PCPM_WEB_IMAGE`를 지정한다. ICPM과 feedback 서비스의 이미지는 이 설정의 영향을 받지 않는다.
+
+`deployment/anubis/test-relay.ts`는 Bun, Caddy 2.11.4, Anubis 1.27.0을 사용한 격리 검사다.
+IP 변경, WebSocket 메시지, POST 본문 보존, 잘못된 쿠키, 다른 호스트의 IP 제한을 검증한다.
+테스트에서는 격리된 루프백 프록시만 신뢰하여 클라이언트 IP를 모의한다. 운영 프록시의
+신뢰 네트워크 설정은 변경하지 않는다.
+
+## Grafana API 및 IP 변경 처리
+
+`ANUBIS_ROAMING_HOSTS`는 추가 호스트의 쉼표 구분 목록이다. 현재 값은
+`dashboard.${ANUBIS_PROTECTED_DOMAIN}` 한 개다. 이 호스트는 호스트명과 User-Agent로
+Anubis 토큰을 제한한다. 기존 SSO 토큰의 `sso:` 접두사는 그대로 유지한다.
+Grafana의 세션 및 OIDC 인증은 원본 서버에서 계속 수행한다. Anubis를 통과해도 Grafana
+세션이 없으면 API는 원본의 401 JSON을 반환한다. 이 변경은 API 허용 규칙이 아니다.
+
+`ANUBIS_API_HOSTS`도 같은 dashboard 호스트로 제한한다. Anubis가 이 호스트의 `/api/*`에
+반환하는 200 HTML 챌린지만 403 `application/problem+json`으로 변환한다. 응답 코드는
+`proxy_verification_required`이며 검증 위치는 `/`다. 백그라운드 API 응답에서 Anubis의
+쿠키 삭제 헤더를 전달하지 않는다. 최상위 페이지 이동은 기존 HTML 챌린지를 유지하고
+검증 쿠키를 갱신한다. 원본 Grafana의 응답은 변환하지 않는다.
+
+해당 호스트의 `/`, `/api/*`, `/login`, `/login/*`, Anubis 검증 API에는
+`Cache-Control: private, no-store`와 `Pragma: no-cache`를 설정한다. Caddy JSON의
+`headers.response.deferred`를 사용하여 원본 헤더가 캐시 금지 설정을 덮어쓰지 않도록 한다.
+성공 판정은 기존 private responder의 204 및 검증 헤더 일치가 우선한다. 그다음 HTML
+챌린지를 처리하며 대상 외 응답은 `copy_response`로 보존한다.
+
+IP 제한 완화는 탈취된 유효 Anubis 쿠키가 동일 User-Agent로 다른 IP에서 재사용될 수 있게 한다.
+서명, 만료, 정책 검사와 별도의 Grafana 인증은 유지한다. User-Agent는 신원 인증 수단이 아니다.
+클라이언트가 보낸 IP 및 검증 헤더를 신뢰하지 않는다. 프라이빗 릴레이의 실제 기기 검사는
+격리 환경의 IPv4/IPv6 전환 검사와 구분해야 한다.
+
+근거: [Anubis 1.27.0 토큰 제한 검사](https://github.com/TecharoHQ/anubis/blob/v1.27.0/lib/anubis.go),
+[Caddy 2.11.4 응답 헤더 JSON](https://github.com/caddyserver/caddy/blob/v2.11.4/modules/caddyhttp/headers/headers.go),
+[Caddy 응답 가로채기](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#intercepting-responses).

@@ -47,7 +47,7 @@ python3 scripts/app-source.py prepare --replace
 ./scripts/validate.sh
 ```
 
-앱 변경 검증에는 Bun 1.4.2와 Node 24를 사용한다. 앱 폴더에서 frozen lockfile 설치,
+앱 변경 검증에는 Bun 1.4.4와 Node 24를 사용한다. 앱 폴더에서 frozen lockfile 설치,
 `bun run test --maxWorkers=1`, `sh scripts/test-custom.sh`, `bun run typecheck`,
 임시 DB를 지정한 `bun --bun run build`를 수행한다. 인증·DB 마이그레이션·Caddy pin 변경은
 별도로 검토한다. 테스트 후 패치와 원본 lock 파일을 같은 배포 커밋으로 올린다.

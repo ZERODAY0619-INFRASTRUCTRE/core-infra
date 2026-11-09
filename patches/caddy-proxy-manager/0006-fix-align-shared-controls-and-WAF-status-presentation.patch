@@ -1,0 +1,259 @@
+From 7fa96692c2485ffa2d9503faf973308c19a004ab Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Mon, 9 Nov 2026 12:45:09 +0900
+Subject: [PATCH 6/9] fix: align shared controls and WAF status presentation
+
+From: Codex <codex@localhost>
+
+Remove line clamping that replaced the flex layout inside select triggers and collapsed indicator spacing. Correct Radix variable syntax, menu sizing and elevation. Align search fields, tabs, segmented controls and filter popovers across desktop and mobile layouts. Show disabled WAF mode with a neutral indicator instead of an error color. TypeScript, 56 focused tests, custom runtime tests and 39 responsive route checks passed.
+---
+ app/(dashboard)/waf/WafHostsSection.tsx     |  4 ++--
+ app/(dashboard)/waf/waf-settings-shared.tsx | 11 ++++++-----
+ src/components/ui/FilterBar.tsx             |  2 +-
+ src/components/ui/SearchField.tsx           |  2 +-
+ src/components/ui/SegmentedControl.tsx      | 10 +++++-----
+ src/components/ui/dropdown-menu.tsx         |  4 ++--
+ src/components/ui/input.tsx                 |  2 +-
+ src/components/ui/popover.tsx               |  2 +-
+ src/components/ui/select.tsx                |  6 +++---
+ src/components/ui/tabs.tsx                  |  4 ++--
+ src/components/ui/textarea.tsx              |  2 +-
+ src/components/ui/tooltip.tsx               |  2 +-
+ 12 files changed, 26 insertions(+), 25 deletions(-)
+
+diff --git a/app/(dashboard)/waf/WafHostsSection.tsx b/app/(dashboard)/waf/WafHostsSection.tsx
+index 214377cfd684d3e0839cc93f681e9abfd118621f..0a17f4174a66cf98eae50327a3b29b4026e0cd34 100644
+--- a/app/(dashboard)/waf/WafHostsSection.tsx
++++ b/app/(dashboard)/waf/WafHostsSection.tsx
+@@ -142,8 +142,8 @@ export function WafHostsSection({
+                 <td className="whitespace-nowrap px-2.5 py-2.5">
+                   {canWrite ? (
+                     <Select value={host.mode} onValueChange={(value) => changeMode(host, value as WafHostMode)} disabled={pending}>
+-                      <SelectTrigger className="h-8 w-[220px]" aria-label={`WAF mode of ${host.name}`}>
+-                        <span className="flex items-center gap-2">
++                      <SelectTrigger className="h-8 w-56 max-w-full" aria-label={`WAF mode of ${host.name}`}>
++                        <span className="flex min-w-0 items-center gap-2">
+                           <ToneDot tone={EFFECTIVE_MODE_TONES[host.effectiveMode]} />
+                           <SelectValue />
+                         </span>
+diff --git a/app/(dashboard)/waf/waf-settings-shared.tsx b/app/(dashboard)/waf/waf-settings-shared.tsx
+index f7d18e6391986d697ab9f1791b7097f951a37a13..48188385231c417a75e9786652af9dc9a0100ca4 100644
+--- a/app/(dashboard)/waf/waf-settings-shared.tsx
++++ b/app/(dashboard)/waf/waf-settings-shared.tsx
+@@ -30,16 +30,17 @@ export type WafSettingsPageData = {
+ const fmt = (value: number) => value.toLocaleString("en-US");
+ const plural = (count: number, word: string) => `${fmt(count)} ${word}${count === 1 ? "" : "s"}`;
+ 
+-export function ToneDot({ tone, className }: { tone: "ok" | "warn" | "bad"; className?: string }) {
++export function ToneDot({ tone, className }: { tone: "ok" | "warn" | "bad" | "off"; className?: string }) {
+   return (
+     <span
+       aria-hidden="true"
+       data-tone={tone}
+       className={cn(
+         "inline-block h-2 w-2 shrink-0 rounded-full",
+-        tone === "ok" && "bg-primary",
+-        tone === "warn" && "bg-muted-foreground",
++        tone === "ok" && "bg-ok",
++        tone === "warn" && "bg-warn",
+         tone === "bad" && "bg-destructive",
++        tone === "off" && "bg-soft",
+         className
+       )}
+     />
+@@ -51,10 +52,10 @@ export const EFFECTIVE_MODE_LABELS: Record<WafHostView["effectiveMode"], string>
+   detection_only: "Detection only",
+   off: "Off",
+ };
+-export const EFFECTIVE_MODE_TONES: Record<WafHostView["effectiveMode"], "ok" | "warn" | "bad"> = {
++export const EFFECTIVE_MODE_TONES: Record<WafHostView["effectiveMode"], "ok" | "warn" | "bad" | "off"> = {
+   block: "ok",
+   detection_only: "warn",
+-  off: "bad",
++  off: "off",
+ };
+ 
+ /** Hosts per effective mode, as "Blocking on 7 hosts, detection only on 1 host". */
+diff --git a/src/components/ui/FilterBar.tsx b/src/components/ui/FilterBar.tsx
+index 4eb46fd25a530042a54e488c0174768f31bf0da5..a5652e8f721264e5a0948214b166545294881eb7 100644
+--- a/src/components/ui/FilterBar.tsx
++++ b/src/components/ui/FilterBar.tsx
+@@ -418,7 +418,7 @@ function SearchFilter({ dimensions, onAdd, onSearch }: { dimensions: readonly Fi
+         />
+       </label>
+       {showList && (
+-        <ul id={listId} role="listbox" aria-label="Filters to add" className="absolute left-0 top-full z-50 m-0 mt-1 max-h-80 w-full min-w-[320px] list-none overflow-y-auto rounded-lg border border-line2 bg-panel p-1 shadow-overlay">
++        <ul id={listId} role="listbox" aria-label="Filters to add" className="absolute left-0 top-full z-50 m-0 mt-1 max-h-80 w-full min-w-0 max-w-[calc(100vw-2rem)] list-none overflow-y-auto rounded-lg border border-line2 bg-panel p-1 shadow-overlay">
+           {choices.map((choice, i) => (
+             <li
+               key={choice.key}
+diff --git a/src/components/ui/SearchField.tsx b/src/components/ui/SearchField.tsx
+index 8bce2279d45b46fdb01d50fb2456c3faca4f75f8..01577e00576456acd2080cdbedad05254c100b68 100644
+--- a/src/components/ui/SearchField.tsx
++++ b/src/components/ui/SearchField.tsx
+@@ -26,7 +26,7 @@ export function SearchField({ className, ...props }: SearchFieldProps) {
+       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+       <Input
+         placeholder="Search..."
+-        className="pl-9 rounded-sm h-11 bg-card"
++        className="pl-9 rounded-md h-9 bg-card"
+         {...props}
+       />
+     </div>
+diff --git a/src/components/ui/SegmentedControl.tsx b/src/components/ui/SegmentedControl.tsx
+index 480827e4170e9418b688f71b115d7e5446b1ed60..9c47c1753dfb1149aaf75c878980f2a3ddce5826 100644
+--- a/src/components/ui/SegmentedControl.tsx
++++ b/src/components/ui/SegmentedControl.tsx
+@@ -48,8 +48,8 @@ export function SegmentedControl<T extends string = string>({
+       role="group"
+       aria-label={label}
+       className={cn(
+-        "inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-[10px] border border-line bg-panel p-[3px] scrollbar-none",
+-        size === "sm" && "rounded-[9px]",
++        "inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-md border border-line bg-panel p-[3px] scrollbar-none",
++        size === "sm" && "rounded-md",
+         className
+       )}
+     >
+@@ -66,11 +66,11 @@ export function SegmentedControl<T extends string = string>({
+               if (!pressed) onChange(option.value);
+             }}
+             className={cn(
+-              "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap border-0 text-[13px] transition-colors",
++              "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap border-0 text-[13px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
+               "disabled:cursor-not-allowed disabled:opacity-45",
+-              size === "sm" ? "h-[26px] rounded-[6px] px-2.5" : "h-[30px] rounded-[7px] px-3",
++              size === "sm" ? "h-[26px] rounded px-2.5" : "h-[30px] rounded px-3",
+               mono && "num",
+-              pressed ? "bg-raise text-foreground" : "bg-transparent text-muted-foreground hover:text-foreground"
++              pressed ? "bg-raise font-medium text-foreground shadow-sm" : "bg-transparent text-muted-foreground hover:text-foreground"
+             )}
+           >
+             {option.label}
+diff --git a/src/components/ui/dropdown-menu.tsx b/src/components/ui/dropdown-menu.tsx
+index 79c0fdf7624f3e2e51fdd7e6449088f21ff3e4fc..60f2d5e7a95c9bf17b40f7b86d7b1c841c1d2845 100644
+--- a/src/components/ui/dropdown-menu.tsx
++++ b/src/components/ui/dropdown-menu.tsx
+@@ -47,7 +47,7 @@ const DropdownMenuSubContent = React.forwardRef<
+   <DropdownMenuPrimitive.SubContent
+     ref={ref}
+     className={cn(
+-      "z-50 min-w-[8rem] max-w-[calc(100vw-16px)] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-dropdown-menu-content-transform-origin]",
++      "z-50 min-w-[8rem] max-w-[calc(100vw-16px)] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-[var(--fluent-shadow)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[var(--radix-dropdown-menu-content-transform-origin)]",
+       className
+     )}
+     {...props}
+@@ -65,7 +65,7 @@ const DropdownMenuContent = React.forwardRef<
+       ref={ref}
+       sideOffset={sideOffset}
+       className={cn(
+-        "z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] max-w-[calc(100vw-16px)] overflow-y-auto overflow-x-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-dropdown-menu-content-transform-origin]",
++        "z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] max-w-[calc(100vw-16px)] overflow-y-auto overflow-x-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-[var(--fluent-shadow)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[var(--radix-dropdown-menu-content-transform-origin)]",
+         className
+       )}
+       {...props}
+diff --git a/src/components/ui/input.tsx b/src/components/ui/input.tsx
+index 4d15a54efe5e9012c2efb8a991b7bf2ded0a32bb..9cca2e4a178e1d8034770748236ce2b4ee30bfe9 100644
+--- a/src/components/ui/input.tsx
++++ b/src/components/ui/input.tsx
+@@ -8,7 +8,7 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
+       <input
+         type={type}
+         className={cn(
+-          "flex h-9 w-full rounded-lg border border-line2 bg-panel px-3 py-1.5 text-base text-foreground ring-offset-background transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-soft hover:border-soft/60 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-tint disabled:cursor-not-allowed disabled:opacity-50 aria-[invalid=true]:border-bad md:text-sm",
++          "flex h-9 w-full rounded-md border border-line2 bg-panel px-3 py-1.5 text-base text-foreground ring-offset-background transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-soft hover:border-soft/60 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-tint disabled:cursor-not-allowed disabled:opacity-50 aria-[invalid=true]:border-bad md:text-sm",
+           className
+         )}
+         ref={ref}
+diff --git a/src/components/ui/popover.tsx b/src/components/ui/popover.tsx
+index 47a0c3fc71659291c8b65f9916730cc02abbff6f..971cf69d1701aed1c31029db42bd5c2f442bc034 100644
+--- a/src/components/ui/popover.tsx
++++ b/src/components/ui/popover.tsx
+@@ -19,7 +19,7 @@ const PopoverContent = React.forwardRef<
+       align={align}
+       sideOffset={sideOffset}
+       className={cn(
+-        "max-w-[calc(100vw-16px)] max-h-[var(--radix-popover-content-available-height)] overflow-auto z-50 w-72 rounded-md border bg-popover p-4 text-popover-foreground shadow-none outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-popover-content-transform-origin]",
++        "max-w-[calc(100vw-16px)] max-h-[var(--radix-popover-content-available-height)] overflow-auto z-50 w-72 rounded-md border bg-popover p-4 text-popover-foreground shadow-[var(--fluent-shadow)] outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[var(--radix-popover-content-transform-origin)]",
+         className
+       )}
+       {...props}
+diff --git a/src/components/ui/select.tsx b/src/components/ui/select.tsx
+index 504276f3a7713e93ac25193f247e7735aaad783d..80d47aa384401983ba143d2a18cf1cda1e4e78f1 100644
+--- a/src/components/ui/select.tsx
++++ b/src/components/ui/select.tsx
+@@ -19,7 +19,7 @@ const SelectTrigger = React.forwardRef<
+   <SelectPrimitive.Trigger
+     ref={ref}
+     className={cn(
+-      "flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-line2 bg-panel px-3 py-1.5 text-[13px] text-foreground ring-offset-background transition-colors hover:border-soft/60 data-[placeholder]:text-soft focus:outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand-tint disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
++      "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-line2 bg-panel px-3 py-1.5 text-[13px] text-foreground ring-offset-background transition-colors hover:border-soft/60 data-[placeholder]:text-soft focus:outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand-tint disabled:cursor-not-allowed disabled:opacity-50 [&>span]:flex [&>span]:min-w-0 [&>span]:flex-1 [&>span]:items-center [&>span]:gap-2 [&>span]:truncate [&>span]:text-left",
+       className
+     )}
+     {...props}
+@@ -75,7 +75,7 @@ const SelectContent = React.forwardRef<
+     <SelectPrimitive.Content
+       ref={ref}
+       className={cn(
+-        "relative z-50 max-h-[--radix-select-content-available-height] min-w-[8rem] max-w-[calc(100vw-16px)] overflow-y-auto overflow-x-hidden rounded-md border bg-popover text-popover-foreground shadow-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-select-content-transform-origin]",
++        "relative z-50 max-h-[var(--radix-select-content-available-height)] min-w-[8rem] max-w-[calc(100vw-16px)] overflow-y-auto overflow-x-hidden rounded-md border bg-popover text-popover-foreground shadow-[var(--fluent-shadow)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[var(--radix-select-content-transform-origin)]",
+         position === "popper" &&
+           "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
+         className
+@@ -88,7 +88,7 @@ const SelectContent = React.forwardRef<
+         className={cn(
+           "p-1",
+           position === "popper" &&
+-            "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]"
++            "w-full min-w-[var(--radix-select-trigger-width)]"
+         )}
+       >
+         {children}
+diff --git a/src/components/ui/tabs.tsx b/src/components/ui/tabs.tsx
+index 566e34566501e635f6abfd945223f80125710d1f..c68bd82472af90d7218fde1167ebec939b51ee48 100644
+--- a/src/components/ui/tabs.tsx
++++ b/src/components/ui/tabs.tsx
+@@ -14,7 +14,7 @@ const TabsList = React.forwardRef<
+   <TabsPrimitive.List
+     ref={ref}
+     className={cn(
+-      "app-tabs inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground",
++      "app-tabs inline-flex h-10 max-w-full items-center justify-start overflow-x-auto rounded-md bg-muted p-1 text-muted-foreground",
+       className
+     )}
+     {...props}
+@@ -29,7 +29,7 @@ const TabsTrigger = React.forwardRef<
+   <TabsPrimitive.Trigger
+     ref={ref}
+     className={cn(
+-      "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground",
++      "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground",
+       className
+     )}
+     {...props}
+diff --git a/src/components/ui/textarea.tsx b/src/components/ui/textarea.tsx
+index 852e8a9089a1ae3f7f55c1dfa1596b0667364cd7..3ad99700f349eb8de314dfb6433796a7ca365c5d 100644
+--- a/src/components/ui/textarea.tsx
++++ b/src/components/ui/textarea.tsx
+@@ -9,7 +9,7 @@ const Textarea = React.forwardRef<
+   return (
+     <textarea
+       className={cn(
+-        "flex min-h-[80px] w-full rounded-lg border border-line2 bg-panel px-3 py-2 text-base text-foreground ring-offset-background transition-colors placeholder:text-soft hover:border-soft/60 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-tint disabled:cursor-not-allowed disabled:opacity-50 aria-[invalid=true]:border-bad md:text-sm",
++        "flex min-h-[80px] w-full rounded-md border border-line2 bg-panel px-3 py-2 text-base text-foreground ring-offset-background transition-colors placeholder:text-soft hover:border-soft/60 focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-tint disabled:cursor-not-allowed disabled:opacity-50 aria-[invalid=true]:border-bad md:text-sm",
+         className
+       )}
+       ref={ref}
+diff --git a/src/components/ui/tooltip.tsx b/src/components/ui/tooltip.tsx
+index 4f8f435a15d8ce2a2a5593bfd116caf841e4dbda..0fa9a62d626a055a28a707db5fe5c63cbf0124b7 100644
+--- a/src/components/ui/tooltip.tsx
++++ b/src/components/ui/tooltip.tsx
+@@ -19,7 +19,7 @@ const TooltipContent = React.forwardRef<
+     ref={ref}
+     sideOffset={sideOffset}
+     className={cn(
+-      "z-50 overflow-hidden rounded-md border bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-none animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-tooltip-content-transform-origin]",
++      "z-50 overflow-hidden rounded-md border bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-[var(--fluent-shadow)] animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[var(--radix-tooltip-content-transform-origin)]",
+       className
+     )}
+     {...props}

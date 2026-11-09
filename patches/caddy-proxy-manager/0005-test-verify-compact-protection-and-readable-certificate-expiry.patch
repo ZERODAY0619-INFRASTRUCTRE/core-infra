@@ -1,0 +1,43 @@
+From c11842d9973840fb7bd891923adc7cfeb22d374b Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Mon, 9 Nov 2026 12:36:11 +0900
+Subject: [PATCH 5/9] test: verify compact protection and readable certificate
+ expiry
+
+From: Codex <codex@localhost>
+
+Update the host-list assertion for the new full expiry date and verify that a compact Anubis action reports effective protection when global protection is paused. Both focused host suites and five Anubis rendering checks pass.
+---
+ tests/runtime/anubis-toggle.test.tsx  | 7 +++++++
+ tests/unit/proxy-hosts-render.test.ts | 3 ++-
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/tests/runtime/anubis-toggle.test.tsx b/tests/runtime/anubis-toggle.test.tsx
+index 5e5b458bbbc3c79cf6e597c1b1be9ec344197aca..d3b977f260c79c332b57571149cc974f873a3b52 100644
+--- a/tests/runtime/anubis-toggle.test.tsx
++++ b/tests/runtime/anubis-toggle.test.tsx
+@@ -27,3 +27,10 @@ test("an opted-out host stays unchecked even when global protection is on", () =
+   const html = renderToStaticMarkup(<AnubisToggle initial={status} host={{ ...host, anubisEnabled: false }} />);
+   expect(html).toContain('aria-checked="false"'); expect(html).toContain("Protection off");
+ });
++
++test("compact host actions report effective protection when globally paused", () => {
++  const html = renderToStaticMarkup(<AnubisToggle compact initial={{ ...status, enabled: false }} host={host} />);
++  expect(html).toContain('aria-pressed="false"');
++  expect(html).toContain("Paused — global protection is off");
++  expect(html).not.toContain('role="switch"');
++});
+diff --git a/tests/unit/proxy-hosts-render.test.ts b/tests/unit/proxy-hosts-render.test.ts
+index 9b2afc3a07d6bc16780908cb2b0a235f648e28b6..630169fd80776578e2ad319a42d6b6d07e4f3601 100644
+--- a/tests/unit/proxy-hosts-render.test.ts
++++ b/tests/unit/proxy-hosts-render.test.ts
+@@ -173,7 +173,8 @@ describe('proxy hosts list', () => {
+     expect(html).toContain('12,147');
+     expect(html).toContain('5.2%');
+     expect(html).toContain('WAF · Block');
+-    expect(html).toContain('60 days');
++    expect(html).toContain('Expires 2 Dec 2026');
++    expect(html).not.toContain('60 days');
+     expect(html).toContain('renewing now');
+     expect(html).toContain('Automatic');
+     expect(html).toContain('aria-label="More actions for tv.example.com"');

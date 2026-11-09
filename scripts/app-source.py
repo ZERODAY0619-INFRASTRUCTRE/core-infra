@@ -20,7 +20,7 @@ def git(path, *args, **kwargs):
 
 def manifest():
     data = json.loads((PATCHES / 'upstream.json').read_text())
-    if data['repository'] != 'https://github.com/fuomag9/caddy-proxy-manager.git':
+    if data['repository'] != 'https://github.com/ingres-si/ingressi.git':
         raise ValueError('Unexpected upstream repository')
     for key in ('commit', 'patched_tree'):
         if not re.fullmatch('[0-9a-f]{40}', data[key]): raise ValueError('Invalid ' + key)
@@ -29,7 +29,7 @@ def manifest():
         raise ValueError('series order differs from upstream.json')
     for index, patch in enumerate(data['patches'], 1):
         name = patch['file']
-        if not re.fullmatch(rf'{index:04d}-[A-Za-z0-9][A-Za-z0-9-]*\.patch', name):
+        if not re.fullmatch(rf'{index:04d}-[A-Za-z0-9][A-Za-z0-9.-]*\.patch', name):
             raise ValueError('Invalid numbered patch filename')
         content = (PATCHES / name).read_bytes()
         if hashlib.sha256(content).hexdigest() != patch['sha256']:

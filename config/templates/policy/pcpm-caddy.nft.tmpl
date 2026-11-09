@@ -5,6 +5,8 @@ table inet cpm {
         meta nfproto ipv6 drop
         ct state established,related accept
         iifname "lo" ip saddr 127.0.0.1 accept
+        # Preserve the collector source address across the Tailscale relay.
+        ip saddr 100.96.72.9 ip daddr 172.30.81.2 tcp dport 8925 counter accept
         ip saddr 100.64.0.0/10 tcp dport 9090 accept
         ip saddr 172.30.81.3 tcp dport 2019 accept
         tcp dport { 80, 443 } accept
@@ -22,6 +24,8 @@ table inet cpm {
         # Docker embedded DNS for hostname backends and ACME.
         ip daddr 127.0.0.11 udp dport 53 accept
         ip daddr 127.0.0.11 tcp dport 53 accept
+        # CV upstream on the PCPM bridge.
+        ip daddr 172.30.81.20 tcp dport 8080 accept
         # Preserve management and metadata isolation.
         ip daddr { 172.30.80.0/24, 172.30.81.0/24, 127.0.0.0/8, 169.254.0.0/16, @@PUBLIC_BIND_IP@@, @@HOST_TAILNET_IP@@ } drop
         # DNS-01 propagation checks query authoritative DNS servers directly.

@@ -1,0 +1,26 @@
+From 0398a2b093c14d01ce1ba40327c675a930ee3775 Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Mon, 9 Nov 2026 13:17:27 +0900
+Subject: [PATCH 9/9] fix: contain request log labels within the scroll area
+
+From: Codex <codex@localhost>
+
+Absolutely positioned screen-reader labels in a wide production request table escaped their scroll boundary and enlarged the mobile document from 390px to 487px. Establish a containing block on the table scroller while retaining local horizontal scrolling. Confirmed the production browser geometry returns to 390px. TypeScript and analytics/chart rendering tests passed.
+---
+ app/(dashboard)/analytics/RequestLog.tsx | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/app/(dashboard)/analytics/RequestLog.tsx b/app/(dashboard)/analytics/RequestLog.tsx
+index 472ed36ca98dac00410b3ee0d93510c98f1ff5c3..c5e4be5aafd1598a76a72cb5e5fe625825fa39de 100644
+--- a/app/(dashboard)/analytics/RequestLog.tsx
++++ b/app/(dashboard)/analytics/RequestLog.tsx
+@@ -87,7 +87,8 @@ export function RequestLog({
+           {mitigatedOnly ? "No mitigated requests match the filters in this period." : "No requests match the filters in this period."}
+         </p>
+       ) : (
+-        <div className={cn("overflow-x-auto", loading && "opacity-70")} aria-busy={loading}>
++        <div className={cn("relative overflow-x-auto", loading && "opacity-70")} aria-busy={loading}>
++          {/* Absolute screen-reader labels must remain inside the table scroll boundary. */}
+           {/* Fixed columns: a long path is cut short instead of pushing Status and Source off to the right. */}
+           <table className="w-full min-w-[920px] table-fixed border-collapse text-[13px]">
+             <colgroup>

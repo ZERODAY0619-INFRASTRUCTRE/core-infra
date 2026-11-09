@@ -6,6 +6,42 @@
       "action": "ALLOW"
     },
     {
+      "name": "authentik-public-static",
+      "expression": "host.matches(\"(?i)^@@SSO_HOST_REGEX@@[.]?(?::443)?$\") && path.startsWith(\"/static/\")",
+      "action": "ALLOW"
+    },
+    {
+      "name": "cv-robots-txt",
+      "expression": "host.matches(\"(?i)^cv[.]proxy[.]external[.]zeroday0619[.]dev[.]?(?::443)?$\") && path == \"/robots.txt\"",
+      "action": "ALLOW"
+    },
+    {
+      "name": "cv-social-preview-image",
+      "expression": "host.matches(\"(?i)^cv[.]proxy[.]external[.]zeroday0619[.]dev[.]?(?::443)?$\") && path == \"/og-image.png\"",
+      "action": "ALLOW"
+    },
+    {
+      "name": "cv-social-preview-page",
+      "expression": "host.matches(\"(?i)^cv[.]proxy[.]external[.]zeroday0619[.]dev[.]?(?::443)?$\") && path == \"/\"",
+      "user_agent_regex": "(?i)(discordbot|twitterbot|facebookexternalhit|facebot|linkedinbot|slackbot|telegrambot|whatsapp|mastodon|bluesky)",
+      "action": "ALLOW"
+    },
+    {
+      "name": "cv-known-crawlers",
+      "expression": "host.matches(\"(?i)^cv[.]proxy[.]external[.]zeroday0619[.]dev[.]?(?::443)?$\")",
+      "user_agent_regex": "(?i)(bot|crawler|spider|scrapy|headless|chatgpt|claude|anthropic|perplexity|cohere-ai|meta-external|firecrawl|openai|curl|wget|python-requests)",
+      "action": "DENY"
+    },
+    {
+      "name": "cv-strong-challenge",
+      "expression": "host.matches(\"(?i)^cv[.]proxy[.]external[.]zeroday0619[.]dev[.]?(?::443)?$\")",
+      "action": "CHALLENGE",
+      "challenge": {
+        "algorithm": "fast",
+        "difficulty": 5
+      }
+    },
+    {
       "name": "external-browser-challenge",
       "path_regex": ".*",
       "action": "CHALLENGE",

@@ -7,7 +7,8 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 mkdir -p "$ROOT/apps"
 WORK=$(mktemp -d "$ROOT/apps/cpm-update-XXXXXX")
 git -C "$WORK" init -q
-git -C "$WORK" fetch --no-tags https://github.com/fuomag9/caddy-proxy-manager.git "$1"
+UPSTREAM=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["repository"])' "$ROOT/patches/caddy-proxy-manager/upstream.json")
+git -C "$WORK" fetch --no-tags "$UPSTREAM" "$1"
 git -C "$WORK" checkout --detach FETCH_HEAD
 git -C "$WORK" config user.name "CPM Patch Builder"
 git -C "$WORK" config user.email "cpm-patch-builder@localhost"

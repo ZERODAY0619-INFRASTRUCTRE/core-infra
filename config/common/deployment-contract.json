@@ -240,6 +240,11 @@
       },
       {
         "type": "bind",
+        "target": "/etc/ssl/certs/cloudflare-origin-ca.crt",
+        "read_only": true
+      },
+      {
+        "type": "bind",
         "target": "/run/cpm-observations",
         "read_only": true
       },
@@ -456,6 +461,9 @@
   },
   "pcpm-caddy-net": {
     "networks": {
+      "matrix-bridge": {
+        "gw_priority": -1
+      },
       "pcpm": {
         "ipv4_address": "172.30.81.2"
       }
@@ -706,6 +714,11 @@
         "type": "volume",
         "target": "/app/data",
         "source": "pcpm-manager-data"
+      },
+      {
+        "type": "bind",
+        "target": "/etc/ssl/certs/cloudflare-origin-ca.crt",
+        "read_only": true
       },
       {
         "type": "volume",

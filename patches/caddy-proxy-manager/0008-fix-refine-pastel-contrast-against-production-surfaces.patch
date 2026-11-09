@@ -1,0 +1,162 @@
+From 28570a12e94af664bfe566b8f44adb204f836465 Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Mon, 9 Nov 2026 13:08:55 +0900
+Subject: [PATCH 8/9] fix: refine pastel contrast against production surfaces
+
+From: Codex <codex@localhost>
+
+Improve muted text on dark raised surfaces and input boundaries on light surfaces. Use consistent pastel selection and informational states. Keep zero-count area layers from painting a misleading line over real traffic and strengthen light-theme chart strokes. Validate the zero-count regression, focused UI suites, custom runtime checks and both themes against production data.
+---
+ app/(dashboard)/waf/Segmented.tsx        |  4 ++--
+ app/globals.css                          |  6 ++++--
+ src/components/anubis/AnubisSettings.tsx |  2 +-
+ src/components/ui/SegmentedControl.tsx   |  2 +-
+ src/components/ui/chart-internals.tsx    | 10 ++++++----
+ tests/unit/ui-charts.test.ts             | 15 +++++++++++++++
+ tests/unit/ui-components.test.ts         |  2 +-
+ 7 files changed, 30 insertions(+), 11 deletions(-)
+
+diff --git a/app/(dashboard)/waf/Segmented.tsx b/app/(dashboard)/waf/Segmented.tsx
+index 38b2890053700f5b485598c0e5dadeb430bae24c..f75faca2aa322ed7123d79c84106e46f7164a76b 100644
+--- a/app/(dashboard)/waf/Segmented.tsx
++++ b/app/(dashboard)/waf/Segmented.tsx
+@@ -42,8 +42,8 @@ export function Segmented({
+             disabled={disabled}
+             onClick={() => onChange(option.value)}
+             className={cn(
+-              "flex h-[30px] items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm transition-colors disabled:cursor-not-allowed",
+-              checked ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
++              "flex h-[30px] items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed",
++              checked ? "bg-brand-tint font-semibold text-brand ring-1 ring-inset ring-brand/30" : "text-muted-foreground hover:text-foreground"
+             )}
+           >
+             {option.label}
+diff --git a/app/globals.css b/app/globals.css
+index ccdfa6c571669ad06bc31ef7cd9f45ae273da16a..a11195f4afca6b42242cb9b0b938cab3cbeb1d07 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -268,9 +268,10 @@
+   --radius: 6px;
+ }
+ .dark {
++  --chart-line-strength: 100%;
+   --ground: #20242b; --panel: #292e37; --panel2: #303641; --raise: #3b4350;
+   --line: #414a58; --line2: #78869b; --text: #edf1f7; --foreground: #edf1f7;
+-  --soft: #bbc5d4; --brand: #b9d4f3; --brand-fill: #b9d4f3;
++  --text-muted: #bbc5d4; --soft: #bbc5d4; --brand: #b9d4f3; --brand-fill: #b9d4f3;
+   --on-brand-fill: #20344b; --brand-tint: #344458;
+   --served: #a9c9ed; --served2: #cbdcf4; --waf: #e6b89c; --waf-ink: #e6b89c;
+   --access: #e7c7aa; --rl: #ead9ad; --err5: #e6aeb8; --err4: #aebaca;
+@@ -280,8 +281,9 @@
+   --fluent-shadow: 0 2px 4px #00000024, 0 0 2px #0000001f;
+ }
+ .light {
++  --chart-line-strength: 70%;
+   --ground: #f7f8fc; --panel: #ffffff; --panel2: #f0f3f9; --raise: #e7edf6;
+-  --line: #dce3ee; --line2: #9aaac0; --text: #293548; --foreground: #293548;
++  --line: #dce3ee; --line2: #8091a8; --text: #293548; --foreground: #293548;
+   --soft: #57677c; --brand: #365a7a; --brand-fill: #b9d4f3;
+   --on-brand-fill: #20344b; --brand-tint: #e8f0fb;
+   --served: #7d9fc4; --served2: #b9d4f3; --waf: #c99a7a; --waf-ink: #805335;
+diff --git a/src/components/anubis/AnubisSettings.tsx b/src/components/anubis/AnubisSettings.tsx
+index 9beec0f39445f0c3424ce8c4be9eb1af691816e9..065b775d291e66fb8a5497fea5b95d2eda7f15ea 100644
+--- a/src/components/anubis/AnubisSettings.tsx
++++ b/src/components/anubis/AnubisSettings.tsx
+@@ -98,7 +98,7 @@ export function AnubisSettings() {
+         </div>
+       </form>
+     </FormCard>
+-    <Alert className="border-blue-500/30 bg-blue-500/5 text-blue-700 dark:text-blue-400 [&>svg]:text-blue-500">
++    <Alert className="border-brand/30 bg-brand-tint text-brand [&>svg]:text-brand">
+       <AlertDescription>Saving briefly restarts Anubis to apply these settings. Proxy host choices are preserved.</AlertDescription>
+     </Alert>
+   </div>;
+diff --git a/src/components/ui/SegmentedControl.tsx b/src/components/ui/SegmentedControl.tsx
+index 9c47c1753dfb1149aaf75c878980f2a3ddce5826..4f39faf157ff9a5f4230ce4107d45c0f1bff540f 100644
+--- a/src/components/ui/SegmentedControl.tsx
++++ b/src/components/ui/SegmentedControl.tsx
+@@ -70,7 +70,7 @@ export function SegmentedControl<T extends string = string>({
+               "disabled:cursor-not-allowed disabled:opacity-45",
+               size === "sm" ? "h-[26px] rounded px-2.5" : "h-[30px] rounded px-3",
+               mono && "num",
+-              pressed ? "bg-raise font-medium text-foreground shadow-sm" : "bg-transparent text-muted-foreground hover:text-foreground"
++              pressed ? "bg-brand-tint font-semibold text-brand shadow-sm ring-1 ring-inset ring-brand/30" : "bg-transparent text-muted-foreground hover:text-foreground"
+             )}
+           >
+             {option.label}
+diff --git a/src/components/ui/chart-internals.tsx b/src/components/ui/chart-internals.tsx
+index d4ede025eb8353df1873fb753b462d7338cac5a7..2b33cb3fd79b64caf5defaadb31fbb030e962fd1 100644
+--- a/src/components/ui/chart-internals.tsx
++++ b/src/components/ui/chart-internals.tsx
+@@ -513,6 +513,8 @@ function AreaLayers({ series, n, yMax }: { series: readonly ChartSeries[]; n: nu
+   const y = (v: number) => Math.max(0, 100 - (v / yMax) * 100).toFixed(2);
+   const base = new Array<number>(n).fill(0);
+   const layers = series.map((s, index) => {
++    // Empty upper layers must not paint a differently colored line over real traffic.
++    const hasValues = s.values.some((_, bucket) => valueAt(s.values, bucket) > 0);
+     const lower = base.slice();
+     const upper = lower.map((b, i) => b + valueAt(s.values, i));
+     for (let i = 0; i < n; i++) base[i] = upper[i];
+@@ -522,7 +524,7 @@ function AreaLayers({ series, n, yMax }: { series: readonly ChartSeries[]; n: nu
+       .reverse()
+       .map(({ v, i }) => `L${x(i)} ${y(v)}`)
+       .join(" ");
+-    return { key: s.key, color: s.color, opacity: s.fillOpacity ?? (index === 0 ? 0.22 : 0.55), area: `${top} ${bottom} Z`, line: top };
++    return { key: s.key, color: s.color, hasValues, opacity: s.fillOpacity ?? (index === 0 ? 0.22 : 0.55), area: `${top} ${bottom} Z`, line: top };
+   });
+   return (
+     <svg
+@@ -532,11 +534,11 @@ function AreaLayers({ series, n, yMax }: { series: readonly ChartSeries[]; n: nu
+       className="absolute inset-0 size-full overflow-visible"
+       data-testid="chart-areas"
+     >
+-      {layers.map((l) => (
++      {layers.filter(layer => layer.hasValues).map((l) => (
+         <path key={`a-${l.key}`} data-series={l.key} d={l.area} style={{ fill: l.color, fillOpacity: l.opacity }} />
+       ))}
+-      {layers.map((l) => (
+-        <path key={`l-${l.key}`} d={l.line} vectorEffect="non-scaling-stroke" style={{ fill: "none", stroke: l.color, strokeWidth: 1.5, strokeLinejoin: "round" }} />
++      {layers.filter(layer => layer.hasValues).map((l) => (
++        <path key={`l-${l.key}`} d={l.line} vectorEffect="non-scaling-stroke" style={{ fill: "none", stroke: `color-mix(in srgb, ${l.color} var(--chart-line-strength, 100%), var(--foreground))`, strokeWidth: 1.5, strokeLinejoin: "round" }} />
+       ))}
+     </svg>
+   );
+diff --git a/tests/unit/ui-charts.test.ts b/tests/unit/ui-charts.test.ts
+index 59774796bcdf17ea11df6c60049340ef911d93e6..f1bd482803f62fba649fac15f743a86352950ef8 100644
+--- a/tests/unit/ui-charts.test.ts
++++ b/tests/unit/ui-charts.test.ts
+@@ -309,6 +309,21 @@ describe('chart reading', () => {
+ });
+ 
+ describe('StackedAreaChart', () => {
++  it('keeps zero-count upper series in the legend without covering real traffic', () => {
++    const html = renderToStaticMarkup(createElement(StackedAreaChart, {
++      title: 'Traffic', buckets,
++      series: [
++        { key: 'served', label: 'Served', color: 'var(--served)', values: [10, 20, 30] },
++        { key: 'blocked', label: 'Blocked', color: 'var(--waf)', values: [0, 0, 0] },
++      ],
++    }));
++    expect(html).toContain('data-series="served"');
++    expect(html).not.toContain('data-series="blocked"');
++    expect(html).toContain('Blocked');
++    expect(html).toContain('<td>0</td>');
++    expect(html.match(/vector-effect="non-scaling-stroke"/g)).toHaveLength(1);
++  });
++
+   it('draws one stacked area and line per visible series and the same table', () => {
+     const html = renderToStaticMarkup(createElement(StackedAreaChart, { title: 'Traffic, last 24 hours', buckets, series }));
+     expect(html).toContain('data-testid="chart-areas"');
+diff --git a/tests/unit/ui-components.test.ts b/tests/unit/ui-components.test.ts
+index 17c5d3dbb7ee775cf2578d576dbe4abe47254cd4..525baa5f08188ede731765f4f49ee150d177af5f 100644
+--- a/tests/unit/ui-components.test.ts
++++ b/tests/unit/ui-components.test.ts
+@@ -78,7 +78,7 @@ describe('SegmentedControl', () => {
+     );
+     expect(html).toContain('role="group" aria-label="Time range"');
+     expect(html).toMatch(/<button type="button" aria-pressed="false"[^>]*>1h<\/button>/);
+-    expect(html).toMatch(/<button type="button" aria-pressed="true"[^>]*bg-raise[^>]*>24h<\/button>/);
++    expect(html).toMatch(/<button type="button" aria-pressed="true"[^>]*bg-brand-tint[^>]*>24h<\/button>/);
+     expect(html).toMatch(/<button type="button" aria-pressed="false" disabled=""[^>]*>7d<\/button>/);
+   });
+ });

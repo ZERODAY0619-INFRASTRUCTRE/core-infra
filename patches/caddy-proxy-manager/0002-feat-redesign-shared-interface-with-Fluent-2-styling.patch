@@ -1,0 +1,255 @@
+From 5bb61274f577db525f5f9a078d9031b3332f083d Mon Sep 17 00:00:00 2001
+From: zeroday0619 <escha@zeroday0619.dev>
+Date: Mon, 9 Nov 2026 12:19:35 +0900
+Subject: [PATCH 2/9] feat: redesign shared interface with Fluent 2 styling
+
+From: Codex <codex@localhost>
+
+Replace the industrial palette and typography with neutral surfaces, blue accents, rounded controls and Fluent-style elevation. Apply the same presentation to navigation, management components and public status pages while retaining existing behavior.
+---
+ app/(dashboard)/DashboardLayoutClient.tsx |  8 ++--
+ app/(dashboard)/instances/SyncGroup.tsx   |  6 +--
+ app/globals.css                           | 52 ++++++++++++++++++++---
+ src/components/SystemBrand.tsx            |  2 +-
+ src/components/ui/PageHeader.tsx          |  2 +-
+ src/components/ui/button.tsx              | 15 +++----
+ src/components/ui/calendar.tsx            |  6 +--
+ src/components/ui/card.tsx                |  2 +-
+ src/lib/status-pages.ts                   |  2 +-
+ 9 files changed, 66 insertions(+), 29 deletions(-)
+
+diff --git a/app/(dashboard)/DashboardLayoutClient.tsx b/app/(dashboard)/DashboardLayoutClient.tsx
+index eefbf8186f386420c2836d6a326416c90eb7afe6..47ff64b43181eb8ec610f423e5b0027be9996f6e 100644
+--- a/app/(dashboard)/DashboardLayoutClient.tsx
++++ b/app/(dashboard)/DashboardLayoutClient.tsx
+@@ -356,7 +356,7 @@ function NavContent({
+         {groups.map((group) => (
+           <div key={group.title ?? "start"} role="group" aria-label={group.title ?? undefined} className="flex flex-col gap-0.5">
+             {group.title && (
+-              <div aria-hidden="true" className="px-2.5 pb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-soft">{group.title}</div>
++              <div aria-hidden="true" className="px-2.5 pb-1 text-[11px] font-semibold tracking-normal text-soft">{group.title}</div>
+             )}
+             {group.entries.map((entry) => (
+               <Fragment key={entry.key}>
+@@ -458,8 +458,8 @@ function Shell({
+   const title = currentLabel(pathname, user, summary) || branding.productName;
+ 
+   return (
+-    <div className="flex min-h-screen">
+-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-62 flex-col border-r border-line bg-panel md:flex">
++    <div className="flex min-h-screen bg-ground">
++      <aside className="fixed inset-y-0 left-0 z-30 hidden w-62 flex-col border-r border-line bg-panel2 md:flex">
+         <NavContent
+           pathname={pathname}
+           user={user}
+@@ -497,7 +497,7 @@ function Shell({
+ 
+       {/* overflow-x: clip, not hidden: hidden would make main a scroll container and break position: sticky inside pages. */}
+       <main className="mt-14 min-w-0 flex-1 overflow-x-clip pb-24 md:ml-62 md:mt-0 md:pb-0">
+-        <div className="mx-auto max-w-[1600px] px-4 py-4 md:px-8 md:pt-6 md:pb-14">{children}</div>
++        <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-10 md:pt-8 md:pb-14">{children}</div>
+       </main>
+ 
+       <BottomNav user={user} summary={summary} pathname={pathname} onMore={() => setMobileOpen(true)} />
+diff --git a/app/(dashboard)/instances/SyncGroup.tsx b/app/(dashboard)/instances/SyncGroup.tsx
+index 82f6154427465e12ef79ced79f899ac16b5a5622..ff5ff79266f135574ef4ee8c0afff92337c09cff 100644
+--- a/app/(dashboard)/instances/SyncGroup.tsx
++++ b/app/(dashboard)/instances/SyncGroup.tsx
+@@ -283,7 +283,7 @@ function ReplicasCard({ master, canWrite }: { master: NonNullable<InstanceSyncPr
+ 
+       {master.envInstances.length > 0 && (
+         <div className="flex flex-col">
+-          <p className="m-0 px-5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-soft">Set in INSTANCE_SLAVES</p>
++          <p className="m-0 px-5 pb-1 pt-3 text-[11px] font-semibold tracking-normal text-soft">Set in INSTANCE_SLAVES</p>
+           <ul className="m-0 list-none divide-y divide-line p-0">
+             {master.envInstances.map((instance, index) => (
+               <li key={`env-${index}`} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+@@ -317,7 +317,7 @@ function ReplicasCard({ master, canWrite }: { master: NonNullable<InstanceSyncPr
+       {master.instances.length > 0 && (
+         <div className="flex flex-col">
+           {master.envInstances.length > 0 && (
+-            <p className="m-0 border-t border-line px-5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-soft">
++            <p className="m-0 border-t border-line px-5 pb-1 pt-3 text-[11px] font-semibold tracking-normal text-soft">
+               Added here
+             </p>
+           )}
+@@ -375,7 +375,7 @@ function ReplicasCard({ master, canWrite }: { master: NonNullable<InstanceSyncPr
+ 
+       {master.orphanSyncKeyPins.length > 0 && (
+         <div className="flex flex-col border-t border-line">
+-          <p className="m-0 px-5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-soft">Key pins without a replica</p>
++          <p className="m-0 px-5 pb-1 pt-3 text-[11px] font-semibold tracking-normal text-soft">Key pins without a replica</p>
+           <p className="m-0 px-5 pb-2 text-xs text-muted-foreground">A replica added at one of these URLs inherits its pin.</p>
+           <ul className="m-0 list-none divide-y divide-line p-0">
+             {master.orphanSyncKeyPins.map((pin) => (
+diff --git a/app/globals.css b/app/globals.css
+index e933208005010d22aebee7efc110c8bd0dc79738..29919cdfe5367f7ed7d2979c810effed2817d1ca 100644
+--- a/app/globals.css
++++ b/app/globals.css
+@@ -260,8 +260,50 @@
+   display: none;
+ }
+ 
+-/* TOMORI retains its local typography and accent on the expanded upstream screens. */
+-:root { --eva-display: "TOMORI Display", "Arial Narrow", Arial, sans-serif; --eva-mono: "TOMORI Mono", Consolas, monospace; }
+-.dark { --ground: #0b090b; --panel: #140e0f; --panel2: #241214; --raise: #341518; --line: #743338; --line2: #ba5b61; --foreground: #f3ece2; --soft: #c5b7b1; --brand: #ff8589; --brand-fill: #f05252; --on-brand-fill: #0b090b; --brand-tint: #341518; --radius: 0px; }
+-.light { --brand: #a42632; --brand-fill: #a42632; --on-brand-fill: #ffffff; --brand-tint: #fbe8e9; --radius: 0px; }
+-h1, h2, h3 { font-family: var(--eva-display); }
++/* Fluent 2 semantic tokens keep custom and upstream screens on one palette. */
++:root {
++  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
++  --eva-display: var(--font-sans);
++  --eva-mono: "Cascadia Code", Consolas, monospace;
++  --radius: 6px;
++}
++.dark {
++  --ground: #1f1f1f; --panel: #292929; --panel2: #333333; --raise: #3d3d3d;
++  --line: #424242; --line2: #707070; --text: #ffffff; --foreground: #ffffff;
++  --soft: #d6d6d6; --brand: #479ef5; --brand-fill: #115ea3;
++  --on-brand-fill: #ffffff; --brand-tint: #082338;
++  --fluent-shadow: 0 2px 4px #00000024, 0 0 2px #0000001f;
++}
++.light {
++  --ground: #f5f5f5; --panel: #ffffff; --panel2: #fafafa; --raise: #f0f0f0;
++  --line: #e0e0e0; --line2: #b3b3b3; --text: #242424; --foreground: #242424;
++  --soft: #616161; --brand: #0f6cbd; --brand-fill: #0f6cbd;
++  --on-brand-fill: #ffffff; --brand-tint: #ebf3fc;
++  --fluent-shadow: 0 2px 4px #00000014, 0 0 2px #0000001f;
++}
++body { font-family: var(--font-sans); }
++h1, h2, h3 { font-family: var(--font-sans); letter-spacing: -0.02em; }
++h1 { font-weight: 600; }
++button, input, select, textarea { font-family: inherit; }
++button, a, input, select, textarea { transition-duration: 120ms; }
++[role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper] > * {
++  border-radius: 8px; box-shadow: 0 8px 32px #00000026, 0 0 2px #0000001f;
++}
++input:not([type="checkbox"]):not([type="radio"]), textarea, select {
++  border-radius: 4px; border-bottom-color: var(--soft);
++}
++input:focus-visible, textarea:focus-visible, select:focus-visible {
++  border-bottom-color: var(--brand); box-shadow: inset 0 -2px var(--brand);
++}
++[role="tablist"] { border-radius: 6px; background: var(--panel2); }
++[role="tab"] { border-radius: 4px; font-weight: 600; }
++[role="tab"][data-state="active"] { background: var(--panel); box-shadow: inset 0 -2px var(--brand); }
++[role="menuitem"], [role="option"] { border-radius: 4px; }
++nav a[aria-current="page"] { background: var(--brand-tint); color: var(--brand); box-shadow: inset 3px 0 var(--brand); }
++table thead { background: var(--panel2); }
++table th { font-weight: 600; }
++table tbody tr:hover { background: var(--raise); }
++::selection { background: var(--brand-tint); color: var(--text); }
++@media (prefers-reduced-motion: reduce) {
++  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
++}
+diff --git a/src/components/SystemBrand.tsx b/src/components/SystemBrand.tsx
+index c65a8903188560007b03aa3b26971102aa7128bc..991d1849ba022cf3c0fb8fd5b6904187bdc2e231 100644
+--- a/src/components/SystemBrand.tsx
++++ b/src/components/SystemBrand.tsx
+@@ -1,5 +1,5 @@
+ import { APP_NAME, APP_FULL_NAME } from "@/src/lib/branding";
+ 
+ export function SystemBrand() {
+-  return <div className="eva-brand" title={APP_FULL_NAME}><span className="eva-brand-register">[ TRAFFIC OPERATIONS ]</span><span className="eva-wordmark">{APP_NAME}</span><span className="eva-brand-caption">ORCHESTRATE / OBSERVE / ROUTE</span></div>;
++  return <div className="flex items-center gap-3" title={APP_FULL_NAME}><span aria-hidden="true" className="grid size-9 place-items-center rounded-lg bg-brand-fill text-lg font-semibold text-on-brand-fill">T</span><div><span className="block text-lg font-semibold tracking-tight">{APP_NAME}</span><span className="block text-xs text-soft">Traffic management</span></div></div>;
+ }
+diff --git a/src/components/ui/PageHeader.tsx b/src/components/ui/PageHeader.tsx
+index 0c500589587d597709c21c20ab77a048307c3dc0..ef55f918849d48d7d30b959c4e54fdb780f6f513 100644
+--- a/src/components/ui/PageHeader.tsx
++++ b/src/components/ui/PageHeader.tsx
+@@ -44,7 +44,7 @@ export function PageHeader({ title, description, breadcrumb, count, actions, act
+   const hasActions = Boolean(actions) || Boolean(action);
+   const showCount = count !== undefined && count !== null && count !== "";
+   return (
+-    <header className={cn("mb-6 flex flex-col gap-3.5", className)}>
++    <header className={cn("mb-7 flex flex-col gap-4", className)}>
+       <div className="flex flex-wrap items-end gap-4">
+         <div className="flex min-w-0 flex-[1_1_280px] flex-col gap-1">
+           {breadcrumb && breadcrumb.length > 0 && (
+diff --git a/src/components/ui/button.tsx b/src/components/ui/button.tsx
+index a5bda32df3945e5655b5ab33a2e65eff777979e7..21d29c8e690d0763b88bedfb2bb79e1440e6cb75 100644
+--- a/src/components/ui/button.tsx
++++ b/src/components/ui/button.tsx
+@@ -4,14 +4,9 @@ import { cva, type VariantProps } from "class-variance-authority"
+ 
+ import { cn } from "@/lib/utils"
+ 
+-/**
+- * Buttons of the redesign (System.dc.html): primary (the accent fill),
+- * secondary (raised panel), outline (panel with a border, for header
+- * actions), ghost, danger (outlined, red label) and link. `destructive` is
+- * the danger style under its shadcn name.
+- */
++/** Shared Fluent-style controls retain the existing interaction and variant API. */
+ const buttonVariants = cva(
+-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-none border border-transparent text-xs font-bold uppercase tracking-[0.06em] ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
++  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border border-transparent text-sm font-semibold tracking-normal ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+   {
+     variants: {
+       variant: {
+@@ -27,10 +22,10 @@ const buttonVariants = cva(
+         link: "text-primary underline-offset-4 hover:underline",
+       },
+       size: {
+-        default: "min-h-11 px-4 py-2.5",
++        default: "min-h-9 px-4 py-1.5",
+         sm: "h-9 px-3",
+-        lg: "h-12 px-6",
+-        icon: "h-11 w-11",
++        lg: "h-10 px-6",
++        icon: "h-9 w-9",
+         "icon-sm": "h-8 w-8",
+       },
+     },
+diff --git a/src/components/ui/calendar.tsx b/src/components/ui/calendar.tsx
+index 018e0eb1d6ceab5398ca02d926f32aa04b37d426..4fa4f2d13a308e23098ebfa31d371d77065d7839 100644
+--- a/src/components/ui/calendar.tsx
++++ b/src/components/ui/calendar.tsx
+@@ -107,10 +107,10 @@ function Calendar({
+           "bg-accent rounded-l-md",
+           defaultClassNames.range_start
+         ),
+-        range_middle: cn("rounded-none", defaultClassNames.range_middle),
++        range_middle: cn("rounded-md", defaultClassNames.range_middle),
+         range_end: cn("bg-accent rounded-r-md", defaultClassNames.range_end),
+         today: cn(
+-          "bg-accent text-accent-foreground rounded-md data-[selected=true]:rounded-none",
++          "bg-accent text-accent-foreground rounded-md data-[selected=true]:rounded-md",
+           defaultClassNames.today
+         ),
+         outside: cn(
+@@ -201,7 +201,7 @@ function CalendarDayButton({
+       data-range-end={modifiers.range_end}
+       data-range-middle={modifiers.range_middle}
+       className={cn(
+-        "data-[selected-single=true]:bg-primary data-[selected-single=true]:text-primary-foreground data-[range-middle=true]:bg-accent data-[range-middle=true]:text-accent-foreground data-[range-start=true]:bg-primary data-[range-start=true]:text-primary-foreground data-[range-end=true]:bg-primary data-[range-end=true]:text-primary-foreground group-data-[focused=true]/day:border-ring group-data-[focused=true]/day:ring-ring/50 flex aspect-square h-auto w-full min-w-(--cell-size) flex-col gap-1 font-normal leading-none data-[range-end=true]:rounded-md data-[range-middle=true]:rounded-none data-[range-start=true]:rounded-md group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:ring-[3px] [&>span]:text-xs [&>span]:opacity-70",
++        "data-[selected-single=true]:bg-primary data-[selected-single=true]:text-primary-foreground data-[range-middle=true]:bg-accent data-[range-middle=true]:text-accent-foreground data-[range-start=true]:bg-primary data-[range-start=true]:text-primary-foreground data-[range-end=true]:bg-primary data-[range-end=true]:text-primary-foreground group-data-[focused=true]/day:border-ring group-data-[focused=true]/day:ring-ring/50 flex aspect-square h-auto w-full min-w-(--cell-size) flex-col gap-1 font-normal leading-none data-[range-end=true]:rounded-md data-[range-middle=true]:rounded-md data-[range-start=true]:rounded-md group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:ring-[3px] [&>span]:text-xs [&>span]:opacity-70",
+         defaultClassNames.day,
+         className
+       )}
+diff --git a/src/components/ui/card.tsx b/src/components/ui/card.tsx
+index ac14c2e1642339813d062431af80cf8e738a4ba5..07a8080f2f6ef67632797be5fcb1d4310183b5b6 100644
+--- a/src/components/ui/card.tsx
++++ b/src/components/ui/card.tsx
+@@ -9,7 +9,7 @@ const Card = React.forwardRef<
+   <div
+     ref={ref}
+     className={cn(
+-      "eva-panel min-w-0 rounded-none border bg-card text-card-foreground",
++      "min-w-0 rounded-lg border bg-card shadow-[var(--fluent-shadow)] text-card-foreground",
+       className
+     )}
+     {...props}
+diff --git a/src/lib/status-pages.ts b/src/lib/status-pages.ts
+index 91311dab4cf11cc02eebaf76c16879aaf4578d57..55924cbbee570f59c5e22ceb9a4262dc1e94d209 100644
+--- a/src/lib/status-pages.ts
++++ b/src/lib/status-pages.ts
+@@ -32,7 +32,7 @@ export const errorCatalog: Record<number, {title:string; reason:string; visitor:
+   530:{title:'Upstream service error',reason:'An upstream service returned HTTP 530.',visitor:'Try again later or contact the operator.',owner:'Check upstream DNS settings and the detailed error code.'},
+ };
+ export const statusStyles = `
+-.status-page{--s-bg:#0b090b;--s-soft:#140e0f;--s-text:#f3ece2;--s-muted:#c5b7b1;--s-line:#743338;--s-accent:#f05252;--s-number:#f19e1f;box-sizing:border-box;display:flow-root;min-height:100vh;background:var(--s-bg);color:var(--s-text);font:16px/1.55 Arial,system-ui,sans-serif;padding:0 24px 32px}.status-page *{box-sizing:border-box}.status-wrap{max-width:1100px;margin:auto}.status-brand{display:grid;grid-template-columns:1fr auto;align-items:end;gap:12px 24px;margin-top:24px;padding:20px 0;border-top:3px solid var(--s-accent);border-bottom:1px solid var(--s-line)}.status-wordmark{font:800 48px/.9 "Arial Narrow",Arial,sans-serif;letter-spacing:-.04em;color:var(--s-accent)}.status-brand-subtitle{font:700 12px/1.5 Consolas,monospace;letter-spacing:.08em;text-align:right}.status-full-name{grid-column:1/-1;max-width:680px;font-size:12px;line-height:1.6;color:var(--s-muted)}.status-header{display:grid;grid-template-columns:220px minmax(0,1fr);gap:10px 40px;padding:40px 0 32px;border-bottom:1px solid var(--s-line);margin-bottom:24px}.status-code{border-left:3px solid var(--s-accent);padding-left:18px;display:flex;flex-direction:column;gap:18px;grid-row:1/4;margin:0;color:var(--s-accent)}.status-protocol{font:600 11px/1.4 Consolas,monospace;letter-spacing:.08em}.status-designation{color:var(--s-number);font:400 112px/.9 "Arial Narrow",Arial,sans-serif;letter-spacing:-.07em}.status-page h2{margin:0;font:800 38px/1.05 "Arial Narrow",Arial,sans-serif;letter-spacing:-.025em;text-transform:uppercase;overflow-wrap:anywhere}.status-message{margin:0;color:var(--s-muted);max-width:760px}.status-time{display:block;margin-top:12px;font:12px/1.6 Consolas,monospace;color:var(--s-muted)}.status-chain{counter-reset:layer;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--s-soft);border:1px solid var(--s-line)}.status-node{counter-increment:layer;position:relative;padding:24px;text-align:left}.status-node::after{content:"";position:absolute;top:24px;right:24px;width:42px;height:8px;background:repeating-linear-gradient(90deg,var(--s-line) 0 4px,transparent 4px 7px)}.status-node::before{content:"LAYER " counter(layer,decimal-leading-zero);display:block;margin-bottom:24px;font:10px/1.5 Consolas,monospace;letter-spacing:.08em;color:var(--s-muted)}.status-node+.status-node{border-left:1px solid var(--s-line)}.status-node svg{width:32px;height:32px;margin-bottom:12px}.status-page h3{margin:0 0 12px;font:700 24px/1.15 "Arial Narrow",Arial,sans-serif;text-transform:uppercase;letter-spacing:.02em}.status-node h3{font-size:20px;color:var(--s-text)}.status-node p{font-size:13px;margin:8px 0;color:var(--s-muted);overflow-wrap:anywhere}.status-badge{border-left-width:4px!important;display:inline-block;border:1px solid currentColor;padding:5px 8px;font:12px/1.4 Consolas,monospace}.status-ok{color:#86c78a}.status-error{color:#ff8875}.status-unknown{color:#c3b29c}.status-explainer{display:grid;grid-template-columns:1fr 1fr;gap:40px;padding:36px 0;border-bottom:1px solid var(--s-line)}.status-explainer p{margin:0;color:var(--s-muted)}.status-owner{margin-top:24px}.status-page summary{cursor:pointer;font-weight:600;min-height:48px;display:flex;align-items:center;text-decoration:underline;text-underline-offset:4px;color:var(--s-accent)}.status-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}.status-action{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:10px 18px;border:1px solid var(--s-accent);border-radius:0;background:var(--s-accent);color:var(--s-bg);font:700 13px/1.4 "Arial Narrow",Arial,sans-serif;letter-spacing:.045em;text-transform:uppercase;text-decoration:none;cursor:pointer;transition:background-color 120ms linear,color 120ms linear}.status-secondary{background:transparent;color:var(--s-text);border-color:var(--s-line)}.status-action:hover:not(:disabled){filter:brightness(1.12)}.status-secondary:hover:not(:disabled){border-color:var(--s-accent);color:var(--s-accent)}.status-action:active:not(:disabled){filter:brightness(.85)}.status-action:disabled{opacity:.5;cursor:wait}.status-page :is(a,button,summary,textarea):focus-visible{outline:2px solid var(--s-accent);outline-offset:3px}.status-footer{padding-top:24px;font-size:13px;color:var(--s-muted)}.status-meta{display:flex;flex-wrap:wrap;gap:12px 32px;align-items:baseline}.status-meta p{margin:0}.status-meta code{overflow-wrap:anywhere}.status-feedback{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:24px}.status-feedback .status-action{min-width:64px}.status-ip{display:inline-block}.status-ip summary{display:inline-flex}.status-notice{min-height:24px;font-size:13px;margin:12px 0 0;color:var(--s-muted)}.status-copybox{width:100%;min-height:120px;border:1px solid var(--s-line);border-radius:0;padding:12px;background:var(--s-soft);color:var(--s-text);font:14px/1.55 monospace}.status-page [hidden]{display:none!important}.status-skip{position:absolute;top:0;left:24px;transform:translateY(-150%);background:var(--s-accent);color:var(--s-bg);padding:12px}.status-skip:focus{transform:none}.status-note{font:11px/1.7 Consolas,monospace;color:var(--s-muted);margin:20px 0 0}
++.status-page{--s-bg:#1f1f1f;--s-soft:#292929;--s-text:#ffffff;--s-muted:#d6d6d6;--s-line:#424242;--s-accent:#479ef5;--s-number:#479ef5;box-sizing:border-box;display:flow-root;min-height:100vh;background:var(--s-bg);color:var(--s-text);font:16px/1.55 Arial,system-ui,sans-serif;padding:0 24px 32px}.status-page *{box-sizing:border-box}.status-wrap{max-width:1100px;margin:auto}.status-brand{display:grid;grid-template-columns:1fr auto;align-items:end;gap:12px 24px;margin-top:24px;padding:20px 0;border-top:3px solid var(--s-accent);border-bottom:1px solid var(--s-line)}.status-wordmark{font:600 36px/.9 "Segoe UI",system-ui,sans-serif;letter-spacing:-.04em;color:var(--s-accent)}.status-brand-subtitle{font:700 12px/1.5 Consolas,monospace;letter-spacing:.08em;text-align:right}.status-full-name{grid-column:1/-1;max-width:680px;font-size:12px;line-height:1.6;color:var(--s-muted)}.status-header{display:grid;grid-template-columns:220px minmax(0,1fr);gap:10px 40px;padding:40px 0 32px;border-bottom:1px solid var(--s-line);margin-bottom:24px}.status-code{border-left:3px solid var(--s-accent);padding-left:18px;display:flex;flex-direction:column;gap:18px;grid-row:1/4;margin:0;color:var(--s-accent)}.status-protocol{font:600 11px/1.4 Consolas,monospace;letter-spacing:.08em}.status-designation{color:var(--s-number);font:400 112px/.9 "Segoe UI",system-ui,sans-serif;letter-spacing:-.07em}.status-page h2{margin:0;font:600 38px/1.05 "Segoe UI",system-ui,sans-serif;letter-spacing:-.025em;text-transform:none;overflow-wrap:anywhere}.status-message{margin:0;color:var(--s-muted);max-width:760px}.status-time{display:block;margin-top:12px;font:12px/1.6 Consolas,monospace;color:var(--s-muted)}.status-chain{counter-reset:layer;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:var(--s-soft);border:1px solid var(--s-line)}.status-node{counter-increment:layer;position:relative;padding:24px;text-align:left}.status-node::after{content:"";position:absolute;top:24px;right:24px;width:42px;height:8px;background:repeating-linear-gradient(90deg,var(--s-line) 0 4px,transparent 4px 7px)}.status-node::before{content:"LAYER " counter(layer,decimal-leading-zero);display:block;margin-bottom:24px;font:10px/1.5 Consolas,monospace;letter-spacing:.08em;color:var(--s-muted)}.status-node+.status-node{border-left:1px solid var(--s-line)}.status-node svg{width:32px;height:32px;margin-bottom:12px}.status-page h3{margin:0 0 12px;font:700 24px/1.15 "Segoe UI",system-ui,sans-serif;text-transform:none;letter-spacing:.02em}.status-node h3{font-size:20px;color:var(--s-text)}.status-node p{font-size:13px;margin:8px 0;color:var(--s-muted);overflow-wrap:anywhere}.status-badge{border-left-width:4px!important;display:inline-block;border:1px solid currentColor;padding:5px 8px;font:12px/1.4 Consolas,monospace}.status-ok{color:#86c78a}.status-error{color:#ff8875}.status-unknown{color:#c3b29c}.status-explainer{display:grid;grid-template-columns:1fr 1fr;gap:40px;padding:36px 0;border-bottom:1px solid var(--s-line)}.status-explainer p{margin:0;color:var(--s-muted)}.status-owner{margin-top:24px}.status-page summary{cursor:pointer;font-weight:600;min-height:48px;display:flex;align-items:center;text-decoration:underline;text-underline-offset:4px;color:var(--s-accent)}.status-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}.status-action{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:10px 18px;border:1px solid var(--s-accent);border-radius:6px;background:var(--s-accent);color:var(--s-bg);font:700 13px/1.4 "Segoe UI",system-ui,sans-serif;letter-spacing:.045em;text-transform:none;text-decoration:none;cursor:pointer;transition:background-color 120ms linear,color 120ms linear}.status-secondary{background:transparent;color:var(--s-text);border-color:var(--s-line)}.status-action:hover:not(:disabled){filter:brightness(1.12)}.status-secondary:hover:not(:disabled){border-color:var(--s-accent);color:var(--s-accent)}.status-action:active:not(:disabled){filter:brightness(.85)}.status-action:disabled{opacity:.5;cursor:wait}.status-page :is(a,button,summary,textarea):focus-visible{outline:2px solid var(--s-accent);outline-offset:3px}.status-footer{padding-top:24px;font-size:13px;color:var(--s-muted)}.status-meta{display:flex;flex-wrap:wrap;gap:12px 32px;align-items:baseline}.status-meta p{margin:0}.status-meta code{overflow-wrap:anywhere}.status-feedback{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:24px}.status-feedback .status-action{min-width:64px}.status-ip{display:inline-block}.status-ip summary{display:inline-flex}.status-notice{min-height:24px;font-size:13px;margin:12px 0 0;color:var(--s-muted)}.status-copybox{width:100%;min-height:120px;border:1px solid var(--s-line);border-radius:6px;padding:12px;background:var(--s-soft);color:var(--s-text);font:14px/1.55 monospace}.status-page [hidden]{display:none!important}.status-skip{position:absolute;top:0;left:24px;transform:translateY(-150%);background:var(--s-accent);color:var(--s-bg);padding:12px}.status-skip:focus{transform:none}.status-note{font:11px/1.7 Consolas,monospace;color:var(--s-muted);margin:20px 0 0}
+ @media(max-width:833px){.status-header{grid-template-columns:1fr;padding:28px 0}.status-code{grid-row:auto}.status-page h2{font-size:32px;margin-top:14px}.status-designation{font-size:100px}.status-chain,.status-explainer{grid-template-columns:1fr}.status-node{padding:20px}.status-node::before{margin-bottom:14px}.status-node+.status-node{border-left:0;border-top:1px solid var(--s-line)}.status-explainer{gap:28px;padding:28px 0}.status-actions>.status-action{width:100%}.status-feedback>span{flex-basis:100%}.status-meta{display:block}.status-meta>p{margin:12px 0}.status-brand{grid-template-columns:1fr}.status-brand-subtitle{text-align:left;font-size:11px}.status-wordmark{font-size:44px}}
+ @media(max-width:419px){.status-page{padding-inline:16px}.status-page h2{font-size:28px}.status-designation{font-size:92px}}
+ @media(prefers-contrast:more){.status-page{--s-bg:#131416;--s-soft:#1e2124;--s-text:#fff;--s-muted:#e6e8ea;--s-line:#a9b2ba;--s-accent:#ffb7b9;--s-number:#ffd28a}.status-ok{color:#a4edba}.status-error{color:#ffb7a9}.status-unknown{color:#e7dfd0}}

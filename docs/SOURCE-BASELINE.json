@@ -1,11 +1,12 @@
 {
   "internal_base": "f6ff473ac19c5fdb7ab85d5c74588b7263330ff9",
   "public_base": "f125793470bf99f19439018edf2a272ebffc4b65",
-  "app_commit": "d1aed52bb0943889310c85b828da05faa6506291",
+  "app_commit": "9b6c5c0d158566462fa06fa20b278d3a6b539068",
   "previous_patchset": "20260911T051300701713Z",
   "production_modified": false,
-  "previous_app_commit": "7f2873ebba84e1bba3744bfddf2b259ccd9736c5",
-  "upstream_release": "v1.11.2",
-  "upstream_commit": "7e5791750e5f6bbd8444ed62c680b8df8ed7c05d",
-  "upstream_repository": "https://github.com/fuomag9/caddy-proxy-manager.git"
+  "previous_app_commit": "d1aed52bb0943889310c85b828da05faa6506291",
+  "upstream_release": "v2.10.0",
+  "upstream_commit": "f9b7e42fc82f0f5a20c9d6d8d212327c7b981380",
+  "upstream_repository": "https://github.com/ingres-si/ingressi.git",
+  "patched_tree": "106ae542b6566edcbfb3060d2455b54d6f828f84"
 }

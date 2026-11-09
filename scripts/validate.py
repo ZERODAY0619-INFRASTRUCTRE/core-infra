@@ -35,13 +35,15 @@ def main():
     subprocess.run(["python3", str(ROOT / "scripts/app-source.py"), "check"], check=True)
     assert not git("ls-files", "apps/caddy-proxy-manager"), "Generated app source must not be tracked"
     s = c["services"]
-    for kind in ("web", "caddy"):
-        internal, public = s["icpm-" + kind], s["pcpm-" + kind]
-        assert internal["image"] == public["image"], "Instances must use one image"
-        assert internal["build"] == public["build"], "Instances must use one build"
-        assert pathlib.Path(internal["build"]["context"]) == app
+    internal_web, public_web = s["icpm-web"], s["pcpm-web"]
+    assert internal_web["image"] == public_web["image"], "Instances must use one web image"
+    assert not internal_web.get("build") and not public_web.get("build"), "Web image must be prebuilt"
+    internal_caddy, public_caddy = s["icpm-caddy"], s["pcpm-caddy"]
+    assert internal_caddy["image"] == public_caddy["image"], "Instances must use one Caddy image"
+    assert internal_caddy["build"] == public_caddy["build"], "Instances must use one Caddy build"
+    assert pathlib.Path(internal_caddy["build"]["context"]) == app
     assert s["pcpm-anubis"]["user"] == "10001:10001"
-    assert pathlib.Path(s["pcpm-anubis"]["build"]["context"]) == app
+    assert not s["pcpm-anubis"].get("build"), "Anubis image must be prebuilt"
     envs = {instance: s[instance + "-web"]["environment"] for instance in ("icpm", "pcpm")}
     assert all(not service.get("env_file") for service in s.values()), "Use only the root .env"
     assert not envs["icpm"].get("ANUBIS_PROTECTED_DOMAIN")
