@@ -217,7 +217,7 @@ services:
     environment:
       TAILNET_GATEWAY: 172.30.81.4
     depends_on:
-      tailscale: {condition: service_healthy}
+      tailscale-net: {condition: service_healthy}
     volumes:
       - ./deployment/generated/policy/pcpm-caddy.nft:/etc/cpm/rules.nft:ro
       - ./deployment/generated/policy:/etc/cpm/policy:ro
@@ -245,6 +245,7 @@ services:
     image: ${CPM_CADDY_IMAGE:-cpm-caddy:security-20261024}
     network_mode: service:pcpm-caddy-namespace
     depends_on:
+      tailscale: {condition: service_healthy}
       pcpm-caddy-net: {condition: service_healthy}
     volumes:
       - pcpm-caddy-data:/data
@@ -273,6 +274,7 @@ services:
     volumes:
       - ./deployment/generated/authentik-outpost.Caddyfile:/etc/caddy/authentik-outpost.Caddyfile:ro
     depends_on:
+      tailscale: {condition: service_healthy}
       pcpm-caddy-net: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "-O", "/dev/null", "http://127.0.0.1:8927/outpost.goauthentik.io/ping"]
@@ -329,6 +331,7 @@ services:
       - ./apps/caddy-proxy-manager/src/lib/error-feedback.ts:/feedback/error-feedback.ts:ro
       - ./apps/caddy-proxy-manager/src/lib/error-feedback-handler.ts:/feedback/error-feedback-handler.ts:ro
     depends_on:
+      tailscale: {condition: service_healthy}
       pcpm-caddy-net: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:8930/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

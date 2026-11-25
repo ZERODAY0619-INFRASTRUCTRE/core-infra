@@ -385,6 +385,10 @@
       "pcpm-caddy-net": {
         "condition": "service_healthy",
         "required": true
+      },
+      "tailscale": {
+        "condition": "service_healthy",
+        "required": true
       }
     },
     "healthcheck": {
@@ -426,6 +430,10 @@
         "required": true
       },
       "pcpm-caddy-net": {
+        "condition": "service_healthy",
+        "required": true
+      },
+      "tailscale": {
         "condition": "service_healthy",
         "required": true
       }
@@ -540,7 +548,7 @@
         "restart": true,
         "required": true
       },
-      "tailscale": {
+      "tailscale-net": {
         "condition": "service_healthy",
         "required": true
       }
@@ -638,6 +646,10 @@
         "required": true
       },
       "pcpm-caddy-net": {
+        "condition": "service_healthy",
+        "required": true
+      },
+      "tailscale": {
         "condition": "service_healthy",
         "required": true
       }

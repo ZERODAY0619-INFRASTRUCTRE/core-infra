@@ -70,6 +70,8 @@ def main():
         assert service["restart"] == "no", "Restart can bypass health gates"
         assert not service.get("privileged")
         assert not any("docker.sock" in v.get("source", "") for v in service.get("volumes", []))
+        if name in {"pcpm-caddy", "pcpm-authentik-relay", "pcpm-feedback"}:
+            assert service["depends_on"]["tailscale"]["condition"] == "service_healthy"
         if name.endswith("-namespace"):
             assert service["cap_drop"] == ["ALL"] and not service.get("cap_add")
             assert service["read_only"] and service["user"] == "65534:65534"
@@ -83,7 +85,8 @@ def main():
             assert all(p["protocol"] == "tcp" for p in service.get("ports", []))
             assert set(service["cap_add"]) == {"NET_ADMIN"}
             if name != "tailscale-net":
-                assert service["depends_on"]["tailscale"]["condition"] == "service_healthy"
+                gateway_service = "tailscale-net" if name == "pcpm-caddy-net" else "tailscale"
+                assert service["depends_on"][gateway_service]["condition"] == "service_healthy"
                 assert service["environment"]["TAILNET_GATEWAY"] in {"172.30.80.4", "172.30.81.4"}
         elif name == "tailscale":
             assert not service.get("ports") and not service.get("networks")
