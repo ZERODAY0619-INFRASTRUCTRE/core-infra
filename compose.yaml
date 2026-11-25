@@ -22,6 +22,8 @@ x-guard: &guard
     interval: 5s
     timeout: 3s
     retries: 5
+    start_period: 5s
+    start_interval: 1s
 x-app: &app
   restart: "no"
   cap_drop: [ALL]
@@ -104,6 +106,7 @@ services:
       timeout: 3s
       retries: 24
       start_period: 15s
+      start_interval: 1s
 
   icpm-caddy-net:
     <<: *guard

@@ -99,7 +99,9 @@
       ],
       "timeout": "3s",
       "interval": "5s",
-      "retries": 5
+      "retries": 5,
+      "start_period": "5s",
+      "start_interval": "1s"
     },
     "volumes": [
       {
@@ -302,7 +304,9 @@
       ],
       "timeout": "3s",
       "interval": "5s",
-      "retries": 5
+      "retries": 5,
+      "start_period": "5s",
+      "start_interval": "1s"
     },
     "volumes": [
       {
@@ -548,7 +552,9 @@
       ],
       "timeout": "3s",
       "interval": "5s",
-      "retries": 5
+      "retries": 5,
+      "start_period": "5s",
+      "start_interval": "1s"
     },
     "volumes": [
       {
@@ -830,7 +836,9 @@
       ],
       "timeout": "3s",
       "interval": "5s",
-      "retries": 5
+      "retries": 5,
+      "start_period": "5s",
+      "start_interval": "1s"
     },
     "volumes": [
       {
@@ -884,7 +892,8 @@
       "timeout": "3s",
       "interval": "5s",
       "retries": 24,
-      "start_period": "15s"
+      "start_period": "15s",
+      "start_interval": "1s"
     },
     "volumes": [
       {
@@ -951,7 +960,9 @@
       ],
       "timeout": "3s",
       "interval": "5s",
-      "retries": 5
+      "retries": 5,
+      "start_period": "5s",
+      "start_interval": "1s"
     },
     "volumes": [
       {
