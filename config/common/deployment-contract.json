@@ -316,7 +316,7 @@
     ]
   },
   "pcpm-anubis": {
-    "network_mode": "service:pcpm-caddy-net",
+    "network_mode": "service:pcpm-caddy-namespace",
     "cap_drop": [
       "ALL"
     ],
@@ -326,6 +326,11 @@
     "read_only": true,
     "restart": "no",
     "depends_on": {
+      "pcpm-caddy-namespace": {
+        "condition": "service_started",
+        "restart": true,
+        "required": true
+      },
       "pcpm-caddy-net": {
         "condition": "service_healthy",
         "required": true
@@ -356,7 +361,7 @@
     ]
   },
   "pcpm-authentik-relay": {
-    "network_mode": "service:pcpm-caddy-net",
+    "network_mode": "service:pcpm-caddy-namespace",
     "cap_drop": [
       "ALL"
     ],
@@ -366,6 +371,11 @@
     "read_only": true,
     "restart": "no",
     "depends_on": {
+      "pcpm-caddy-namespace": {
+        "condition": "service_started",
+        "restart": true,
+        "required": true
+      },
       "pcpm-caddy-net": {
         "condition": "service_healthy",
         "required": true
@@ -395,7 +405,7 @@
     ]
   },
   "pcpm-caddy": {
-    "network_mode": "service:pcpm-caddy-net",
+    "network_mode": "service:pcpm-caddy-namespace",
     "cap_drop": [
       "ALL"
     ],
@@ -404,6 +414,11 @@
     ],
     "restart": "no",
     "depends_on": {
+      "pcpm-caddy-namespace": {
+        "condition": "service_started",
+        "restart": true,
+        "required": true
+      },
       "pcpm-caddy-net": {
         "condition": "service_healthy",
         "required": true
@@ -459,7 +474,7 @@
       }
     ]
   },
-  "pcpm-caddy-net": {
+  "pcpm-caddy-namespace": {
     "networks": {
       "matrix-bridge": {
         "gw_priority": -1
@@ -484,6 +499,22 @@
         "protocol": "tcp"
       }
     ],
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "read_only": true,
+    "restart": "no",
+    "sysctls": {
+      "net.ipv4.ip_unprivileged_port_start": "0",
+      "net.ipv6.conf.all.disable_ipv6": "1"
+    },
+    "volumes": []
+  },
+  "pcpm-caddy-net": {
+    "network_mode": "service:pcpm-caddy-namespace",
     "cap_add": [
       "NET_ADMIN"
     ],
@@ -496,14 +527,15 @@
     "read_only": true,
     "restart": "no",
     "depends_on": {
+      "pcpm-caddy-namespace": {
+        "condition": "service_started",
+        "restart": true,
+        "required": true
+      },
       "tailscale": {
         "condition": "service_healthy",
         "required": true
       }
-    },
-    "sysctls": {
-      "net.ipv4.ip_unprivileged_port_start": "0",
-      "net.ipv6.conf.all.disable_ipv6": "1"
     },
     "healthcheck": {
       "test": [
@@ -579,7 +611,7 @@
     ]
   },
   "pcpm-feedback": {
-    "network_mode": "service:pcpm-caddy-net",
+    "network_mode": "service:pcpm-caddy-namespace",
     "cap_drop": [
       "ALL"
     ],
@@ -589,6 +621,11 @@
     "read_only": true,
     "restart": "no",
     "depends_on": {
+      "pcpm-caddy-namespace": {
+        "condition": "service_started",
+        "restart": true,
+        "required": true
+      },
       "pcpm-caddy-net": {
         "condition": "service_healthy",
         "required": true
@@ -803,7 +840,7 @@
     ]
   },
   "tailscale": {
-    "network_mode": "service:tailscale-net",
+    "network_mode": "service:tailscale-namespace",
     "cap_add": [
       "NET_ADMIN",
       "NET_RAW"
@@ -816,6 +853,11 @@
     ],
     "restart": "no",
     "depends_on": {
+      "tailscale-namespace": {
+        "condition": "service_started",
+        "restart": true,
+        "required": true
+      },
       "tailscale-net": {
         "condition": "service_healthy",
         "required": true
@@ -846,7 +888,7 @@
       }
     ]
   },
-  "tailscale-net": {
+  "tailscale-namespace": {
     "networks": {
       "icpm": {
         "ipv4_address": "172.30.80.4"
@@ -858,9 +900,6 @@
         "gw_priority": 1
       }
     },
-    "cap_add": [
-      "NET_ADMIN"
-    ],
     "cap_drop": [
       "ALL"
     ],
@@ -874,6 +913,28 @@
       "net.ipv4.conf.default.rp_filter": "0",
       "net.ipv4.ip_forward": "1",
       "net.ipv6.conf.all.disable_ipv6": "0"
+    },
+    "volumes": []
+  },
+  "tailscale-net": {
+    "network_mode": "service:tailscale-namespace",
+    "cap_add": [
+      "NET_ADMIN"
+    ],
+    "cap_drop": [
+      "ALL"
+    ],
+    "security_opt": [
+      "no-new-privileges:true"
+    ],
+    "read_only": true,
+    "restart": "no",
+    "depends_on": {
+      "tailscale-namespace": {
+        "condition": "service_started",
+        "restart": true,
+        "required": true
+      }
     },
     "healthcheck": {
       "test": [

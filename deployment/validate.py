@@ -50,7 +50,7 @@ def main():
     assert analytics <= {"icpm-clickhouse", "pcpm-clickhouse"}
     geoip = {name for name in services if name.endswith("-geoipupdate")}
     assert geoip <= {"icpm-geoipupdate", "pcpm-geoipupdate"}
-    assert len(services) == 13 + len(analytics) + len(geoip), "Unexpected service count"
+    assert len(services) == 15 + len(analytics) + len(geoip), "Unexpected service count"
     # Public SSO issuer and the two narrowly scoped TLS paths must move together.
     sso_host = site["SSO_HOST"]
     for prefix, address in (("icpm", site["PUBLIC_BIND_IP"]), ("pcpm", "172.30.81.2")):
@@ -70,9 +70,16 @@ def main():
         assert service["restart"] == "no", "Restart can bypass health gates"
         assert not service.get("privileged")
         assert not any("docker.sock" in v.get("source", "") for v in service.get("volumes", []))
-        if name.endswith("-net"):
+        if name.endswith("-namespace"):
+            assert service["cap_drop"] == ["ALL"] and not service.get("cap_add")
+            assert service["read_only"] and service["user"] == "65534:65534"
+            guard = name.removesuffix("-namespace") + "-net"
+            assert services[guard]["network_mode"] == "service:" + name
+            assert not services[guard].get("ports")
+            assert {(p["host_ip"], int(p["published"]), int(p["target"])) for p in service.get("ports", [])} == expected[guard]
+        elif name.endswith("-net"):
             actual = {(p["host_ip"], int(p["published"]), int(p["target"])) for p in service.get("ports", [])}
-            assert actual == expected[name], f"Unexpected port on {name}"
+            assert actual == (set() if service.get("network_mode") else expected[name]), f"Unexpected port on {name}"
             assert all(p["protocol"] == "tcp" for p in service.get("ports", []))
             assert set(service["cap_add"]) == {"NET_ADMIN"}
             if name != "tailscale-net":
@@ -80,7 +87,7 @@ def main():
                 assert service["environment"]["TAILNET_GATEWAY"] in {"172.30.80.4", "172.30.81.4"}
         elif name == "tailscale":
             assert not service.get("ports") and not service.get("networks")
-            assert service["network_mode"] == "service:tailscale-net"
+            assert service["network_mode"] == "service:tailscale-namespace"
             assert set(service["cap_add"]) == {"NET_ADMIN", "NET_RAW"}
             assert service["depends_on"]["tailscale-net"]["condition"] == "service_healthy"
             assert service["environment"]["TS_USERSPACE"] == "false"
@@ -92,7 +99,7 @@ def main():
             assert not service.get("ports") and not service.get("networks")
             assert not service.get("cap_add")
             assert set(service["cap_drop"]) == {"ALL"}
-            assert service["network_mode"] == "service:pcpm-caddy-net"
+            assert service["network_mode"] == "service:pcpm-caddy-namespace"
             assert service["read_only"]
             assert service["depends_on"]["pcpm-caddy-net"]["condition"] == "service_healthy"
             assert service["command"] == ["caddy", "run", "--config", "/etc/caddy/authentik-outpost.Caddyfile", "--adapter", "caddyfile"]
@@ -102,7 +109,7 @@ def main():
             assert not service.get("ports") and not service.get("networks")
             assert not service.get("cap_add")
             assert set(service["cap_drop"]) == {"ALL"}
-            assert service["network_mode"] == "service:pcpm-caddy-net"
+            assert service["network_mode"] == "service:pcpm-caddy-namespace"
             assert service["read_only"]
             assert service["entrypoint"] == ["bun", "/feedback/server.ts"]
             assert service["environment"]["ERROR_FEEDBACK_PATH"] == "/app/feedback/error-feedback.db"
@@ -115,7 +122,7 @@ def main():
             assert not service.get("ports") and not service.get("networks")
             assert not service.get("cap_add")
             assert set(service["cap_drop"]) == {"ALL"}
-            assert service["network_mode"] == "service:pcpm-caddy-net"
+            assert service["network_mode"] == "service:pcpm-caddy-namespace"
             assert service["read_only"]
             assert service["depends_on"]["pcpm-caddy-net"]["condition"] == "service_healthy"
             assert service["environment"]["BIND"] == "127.0.0.1:8923"
@@ -164,7 +171,7 @@ def main():
         else:
             assert not service.get("ports") and not service.get("networks")
             assert not service.get("cap_add")
-            assert service["network_mode"] == f"service:{name}-net"
+            assert service["network_mode"] == ("service:pcpm-caddy-namespace" if name == "pcpm-caddy" else f"service:{name}-net")
             assert service["depends_on"][f"{name}-net"]["condition"] == "service_healthy"
         if name.endswith("-web"):
             env = service["environment"]
