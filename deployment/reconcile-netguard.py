@@ -9,33 +9,37 @@ FORMAT = ('{{.Id}} {{index .Config.Labels "com.docker.compose.service"}} '
           '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}')
 
 
-def inspect_container(container):
-    result = subprocess.run(["docker", "inspect", "--format", FORMAT, container],
+def inspect_containers(identifiers):
+    result = subprocess.run(["docker", "inspect", "--format", FORMAT, *identifiers],
                             capture_output=True, text=True)
-    if result.returncode:
-        return None
-    identifier, service, network, pid, health = result.stdout.split()
-    try:
-        namespace = os.readlink(Path("/proc") / pid / "ns/net")
-    except FileNotFoundError:
-        return None
-    return identifier, service, network, namespace, health
+    # Docker can return partial results when a container disappears during inspection.
+    for line in result.stdout.splitlines():
+        identifier, service, network, pid, health = line.split()
+        try:
+            namespace = os.readlink(Path("/proc") / pid / "ns/net")
+        except FileNotFoundError:
+            continue
+        yield identifier, service, network, namespace, health
 
 
 def reconcile():
     identifiers = subprocess.check_output(
         ["docker", "ps", "-q", "--filter", "label=com.docker.compose.project=cpm"], text=True
     ).split()
-    containers = [state for identifier in identifiers if (state := inspect_container(identifier))]
+    if not identifiers:
+        return
+    containers = list(inspect_containers(identifiers))
+    # Restore the metrics transport and listener before slower auxiliary services.
+    containers.sort(key=lambda state: state[1] not in {"tailscale", "pcpm-anubis"})
     guards = {state[0]: state for state in containers if state[1] in GUARDS}
     for identifier, service, network, namespace, _ in containers:
         guard = guards.get(network.removeprefix("container:"))
         if not guard or guard[4] != "healthy" or namespace == guard[3]:
             continue
         # A concurrent stop or replacement invalidates this observation.
-        if inspect_container(guard[0]) != guard:
+        if next(inspect_containers([guard[0]]), None) != guard:
             continue
-        current = inspect_container(identifier)
+        current = next(inspect_containers([identifier]), None)
         if not current or current[2:4] != (network, namespace):
             continue
         if subprocess.run(["systemctl", "is-active", "--quiet", "cpm.service"]).returncode:

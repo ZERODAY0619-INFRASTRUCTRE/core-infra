@@ -3,8 +3,8 @@ Description=Check CPM network namespace membership
 
 [Timer]
 OnBootSec=30s
-OnUnitInactiveSec=10s
-AccuracySec=1s
+OnUnitInactiveSec=2s
+AccuracySec=250ms
 
 [Install]
 WantedBy=timers.target
