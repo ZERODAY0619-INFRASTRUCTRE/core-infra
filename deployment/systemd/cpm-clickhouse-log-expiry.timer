@@ -1,0 +1,10 @@
+[Unit]
+Description=Check ClickHouse log archives daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

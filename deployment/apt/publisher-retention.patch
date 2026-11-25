@@ -1,0 +1,32 @@
+--- a/scripts/deploy.py
++++ b/scripts/deploy.py
+@@ -19,6 +19,7 @@
+ ROOT = Path(__file__).resolve().parents[1]
+ SSH_OPTIONS = ['-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', '-o', 'StrictHostKeyChecking=yes']
+ REMOTE_INSTALL = r'''
++import fcntl
+ import hashlib
+ import json
+ import os
+@@ -42,6 +43,9 @@
+     if hashlib.file_digest(stream, 'sha256').hexdigest() != archive_digest:
+         raise ValueError('The uploaded archive failed SHA-256 verification')
+ release = base / 'releases' / release_name
++base.mkdir(parents=True, exist_ok=True)
++lock = os.open(base, os.O_RDONLY | os.O_DIRECTORY)
++fcntl.flock(lock, fcntl.LOCK_EX)
+ release.mkdir(parents=True, mode=0o755)
+ current = base / 'current'
+ previous = current.resolve().name if current.exists() else None
+@@ -77,5 +81,11 @@
+ link = base / ('current-' + release_name)
+ link.symlink_to(Path('releases') / release_name)
+ os.replace(link, current)
++for candidate in release.parent.iterdir():
++    if candidate.name in {release_name, previous}:
++        continue
++    if (re.fullmatch(r'[0-9]{8}T[0-9]{6}Z', candidate.name)
++            and not candidate.is_symlink() and candidate.is_dir()):
++        shutil.rmtree(candidate)
+ print(json.dumps({'release': release_name, 'previous_release': previous, 'activated': True}))
+ '''

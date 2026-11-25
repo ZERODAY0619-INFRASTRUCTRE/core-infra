@@ -1,0 +1,8 @@
+[Unit]
+Description=Expire closed ClickHouse log archives older than 30 days
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/libexec/cpm-expire-clickhouse-logs.py
