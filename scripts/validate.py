@@ -14,7 +14,7 @@ def compose():
     ], cwd=ROOT, text=True, env={k:v for k,v in os.environ.items() if k not in {line.split("=", 1)[0] for line in (ROOT / ".env.example").read_text().splitlines() if "=" in line and not line.startswith("#")}}))
 
 def contract(config):
-    keys = ("network_mode", "networks", "ports", "cap_add", "cap_drop", "security_opt",
+    keys = ("init", "network_mode", "networks", "ports", "cap_add", "cap_drop", "security_opt",
             "read_only", "restart", "depends_on", "sysctls", "devices", "healthcheck", "profiles")
     result = {name: {**{k: value[k] for k in keys if k in value},
                    "volumes": [{k: v[k] for k in ("type", "target", "read_only") if k in v}

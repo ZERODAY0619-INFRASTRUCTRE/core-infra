@@ -1,6 +1,7 @@
 # Run from this repository. See docs/MIGRATION.ko.md before production use.
 name: ${COMPOSE_PROJECT_NAME:-cpm-preview}
 x-guard: &guard
+  init: true
   build:
     context: ./deployment/netguard
     # BuildKit bridge DNS fails on this host; only build RUN uses host networking.
@@ -41,6 +42,7 @@ x-web-env: &web-env
   NODE_EXTRA_CA_CERTS: /etc/ssl/certs/cloudflare-origin-ca.crt
 
 x-namespace: &namespace
+  init: true
   image: cpm-netguard:os-patch-20261119
   entrypoint: ["tail", "-f", "/dev/null"]
   restart: "no"
@@ -309,6 +311,7 @@ services:
       start_period: 10s
 
   pcpm-feedback:
+    init: true
     <<: *app
     image: ${CPM_WEB_IMAGE:-cpm-web:security-deps-20261024}
     network_mode: service:pcpm-caddy-namespace

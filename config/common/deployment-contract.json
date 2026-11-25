@@ -65,6 +65,7 @@
     ]
   },
   "icpm-caddy-net": {
+    "init": true,
     "networks": {
       "icpm": {
         "ipv4_address": "172.30.80.2"
@@ -267,6 +268,7 @@
     ]
   },
   "icpm-web-net": {
+    "init": true,
     "networks": {
       "icpm": {
         "ipv4_address": "172.30.80.3"
@@ -475,6 +477,7 @@
     ]
   },
   "pcpm-caddy-namespace": {
+    "init": true,
     "networks": {
       "matrix-bridge": {
         "gw_priority": -1
@@ -514,6 +517,7 @@
     "volumes": []
   },
   "pcpm-caddy-net": {
+    "init": true,
     "network_mode": "service:pcpm-caddy-namespace",
     "cap_add": [
       "NET_ADMIN"
@@ -611,6 +615,7 @@
     ]
   },
   "pcpm-feedback": {
+    "init": true,
     "network_mode": "service:pcpm-caddy-namespace",
     "cap_drop": [
       "ALL"
@@ -791,6 +796,7 @@
     ]
   },
   "pcpm-web-net": {
+    "init": true,
     "networks": {
       "pcpm": {
         "ipv4_address": "172.30.81.3"
@@ -889,6 +895,7 @@
     ]
   },
   "tailscale-namespace": {
+    "init": true,
     "networks": {
       "icpm": {
         "ipv4_address": "172.30.80.4"
@@ -917,6 +924,7 @@
     "volumes": []
   },
   "tailscale-net": {
+    "init": true,
     "network_mode": "service:tailscale-namespace",
     "cap_add": [
       "NET_ADMIN"
