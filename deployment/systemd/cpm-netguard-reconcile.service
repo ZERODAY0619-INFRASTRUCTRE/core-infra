@@ -1,0 +1,13 @@
+[Unit]
+Description=Reconnect CPM containers after netguard restarts
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecCondition=/usr/bin/systemctl is-active --quiet cpm.service
+ExecStart=/usr/bin/python3 /opt/infra/deployment/reconcile-netguard.py
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+TimeoutStartSec=180

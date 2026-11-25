@@ -1,0 +1,10 @@
+[Unit]
+Description=Check CPM network namespace membership
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=10s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

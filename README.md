@@ -84,3 +84,7 @@ Push, Pull Request 및 Actions의 수동 실행에서 다음 검사를 수행한
 기존 설치에서 구성을 렌더링하기 전에 로컬 환경 파일에 모니터링 클라이언트의 Tailscale 주소를 `METRICS_SCRAPER_IP`로, CPM Tailscale 컨테이너 주소를 `METRICS_LISTEN_IP`로 지정한다.
 
 `deployment/vps/<서비스>/compose.images.yml`은 해당 서비스의 기존 Compose 파일과 운영 오버라이드 뒤에 추가한다. 기존 볼륨·환경·서비스 정의가 필요하다. Grafana와 Authentik의 커스텀 이미지는 각 디렉터리에서 해당 오버라이드의 이미지 이름으로 빌드한다. Matrix 보안 이미지 레시피는 `deployment/matrix/`에 있다.
+
+### Netguard 재시작 복구
+
+`deployment/systemd/cpm-netguard-reconcile.service`와 같은 이름의 타이머를 설치하고 `systemctl enable --now cpm-netguard-reconcile.timer`로 활성화한다. 서비스의 기본 스크립트 경로는 `/opt/infra/deployment/reconcile-netguard.py`다. 다른 경로에 설치했다면 systemd 드롭인에서 `ExecStart`를 재설정한다. 타이머는 CPM이 활성 상태일 때 실행 중인 컨테이너의 네트워크 네임스페이스를 대조한다. 정상 상태인 netguard와 네임스페이스가 다른 종속 컨테이너만 재시작한다. 복구 대상은 `journalctl -u cpm-netguard-reconcile.service`에서 확인한다.
