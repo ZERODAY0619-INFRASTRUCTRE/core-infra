@@ -90,3 +90,11 @@ Push, Pull Request 및 Actions의 수동 실행에서 다음 검사를 수행한
 `deployment/systemd/cpm-netguard-reconcile.service`와 같은 이름의 타이머를 설치하고 `systemctl enable --now cpm-netguard-reconcile.timer`로 활성화한다. 서비스의 기본 스크립트 경로는 `/opt/infra/deployment/reconcile-netguard.py`다. 다른 경로에 설치했다면 systemd 드롭인에서 `ExecStart`를 재설정한다. 타이머는 CPM이 활성 상태일 때 실행 중인 컨테이너의 네트워크 네임스페이스를 대조한다. 정상 상태인 netguard와 네임스페이스가 다른 종속 컨테이너만 재시작한다. 복구 대상은 `journalctl -u cpm-netguard-reconcile.service`에서 확인한다.
 
 Anubis 수집 경로에서 `tailscale-namespace`와 `pcpm-caddy-namespace`가 각각 네임스페이스를 소유한다. 두 컨테이너는 기존 netguard 이미지에서 권한 없이 실행된다. 방화벽을 다시 시작할 때는 `tailscale-net`과 `pcpm-caddy-net`만 재시작한다. 규칙은 기존 네임스페이스에서 원자적으로 교체되며 앱의 최초 기동은 netguard 상태 검사에 의존한다. 네임스페이스 소유자 자체를 교체하는 작업은 종속 컨테이너를 함께 재생성하는 유지보수 작업이다.
+
+### CV container shutdown
+
+The edge CV site uses a separate Compose project. From its checkout, apply
+`deployment/cv/compose-init.patch` from this repository to `compose.cpm.yaml`
+with `git apply --unidiff-zero`, then run
+`docker compose -f compose.cpm.yaml up -d --no-build cv`. Docker's built-in
+init forwards SIGTERM to the Python server during host shutdown.

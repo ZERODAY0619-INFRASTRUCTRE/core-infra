@@ -1,0 +1,7 @@
+diff --git a/compose.cpm.yaml b/compose.cpm.yaml
+--- a/compose.cpm.yaml
++++ b/compose.cpm.yaml
+@@ -3,2 +3,3 @@
+ services:
+   cv:
++    init: true
