@@ -1,23 +1,15 @@
-From 0398a2b093c14d01ce1ba40327c675a930ee3775 Mon Sep 17 00:00:00 2001
+From 4672d1eaeb3fa983630bcb1f14a9dba49698f321 Mon Sep 17 00:00:00 2001
 From: zeroday0619 <escha@zeroday0619.dev>
-Date: Thu, 1 Jan 1970 00:00:00 +0000
-Subject: [PATCH 0/9] cpm: update deployment customizations
+Date: Wed, 25 Nov 2026 18:54:12 +0000
+Subject: [PATCH 0/1] cpm: update deployment customizations
 
 Apply the numbered patches in series order to the pinned public
 upstream commit. This series preserves the shared ICPM/PCPM behavior.
 Review each patch and run the deployment and application checks before
 publishing. No review, testing or DCO trailers are synthesized.
 
-Codex (9):
-  fix: preserve TOMORI customizations on Ingressi v2.10.0
-  feat: redesign shared interface with Fluent 2 styling
-  fix: align switch thumb with Fluent track dimensions
-  feat: simplify proxy host protection and certificate presentation
-  test: verify compact protection and readable certificate expiry
-  fix: align shared controls and WAF status presentation
-  feat: soften interface colors with an accessible pastel palette
-  fix: refine pastel contrast against production surfaces
-  fix: contain request log labels within the scroll area
+Euiseo Cha (1):
+  feat: preserve TOMORI protection and status tooling on Ingressi 2.11.1
 
  .dockerignore                                 |   3 +
  .../caddy-compatibility-pins.yml              |  77 ++++++
@@ -70,8 +62,6 @@ Codex (9):
  docker/anubis/supervisor.ts                   |  79 ++++++
  docker/caddy/Dockerfile                       |   4 +-
  docker/caddy/build.sh                         |   9 +
- docker/caddy/go.mod                           |   2 +-
- docker/caddy/go.sum                           |   2 +
  docker/l4-port-manager/entrypoint.sh          |  18 +-
  docker/web/Dockerfile                         |   7 +-
  ee/docs/custom-roles.md                       |   2 +
@@ -125,7 +115,7 @@ Codex (9):
  src/lib/caddy-anubis.ts                       | 113 ++++++++
  src/lib/caddy-authentik.ts                    |  15 ++
  src/lib/caddy-status.ts                       |  41 +++
- src/lib/caddy.ts                              |  78 +++---
+ src/lib/caddy.ts                              |  67 +++--
  src/lib/clickhouse/client.ts                  |   8 +
  src/lib/error-feedback-handler.ts             |  17 ++
  src/lib/error-feedback.ts                     |  30 +++
@@ -171,7 +161,7 @@ Codex (9):
  tests/unit/ui-charts.test.ts                  |  15 ++
  tests/unit/ui-components.test.ts              |   2 +-
  tests/unit/white-label-page-render.test.ts    |  10 +-
- 152 files changed, 2763 insertions(+), 282 deletions(-)
+ 150 files changed, 2760 insertions(+), 270 deletions(-)
  create mode 100644 .github/upstream-workflows/caddy-compatibility-pins.yml
  rename .github/{workflows => upstream-workflows}/dependabot-automerge.yml (100%)
  rename .github/{workflows => upstream-workflows}/docker-build-pr.yml (100%)
@@ -231,4 +221,4 @@ Codex (9):
  create mode 100644 tests/unit/api-routes/anubis.test.ts
 
 
-base-commit: f9b7e42fc82f0f5a20c9d6d8d212327c7b981380
+base-commit: 67f88a8f422818aec28af4457b2a66a36a7b75d4

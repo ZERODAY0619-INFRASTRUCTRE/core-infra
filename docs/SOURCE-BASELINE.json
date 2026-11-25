@@ -1,12 +1,12 @@
 {
   "internal_base": "f6ff473ac19c5fdb7ab85d5c74588b7263330ff9",
   "public_base": "f125793470bf99f19439018edf2a272ebffc4b65",
-  "app_commit": "9b6c5c0d158566462fa06fa20b278d3a6b539068",
+  "app_commit": "4672d1eaeb3fa983630bcb1f14a9dba49698f321",
   "previous_patchset": "20260911T051300701713Z",
   "production_modified": false,
-  "previous_app_commit": "d1aed52bb0943889310c85b828da05faa6506291",
-  "upstream_release": "v2.10.0",
-  "upstream_commit": "f9b7e42fc82f0f5a20c9d6d8d212327c7b981380",
+  "previous_app_commit": "9b6c5c0d158566462fa06fa20b278d3a6b539068",
+  "upstream_release": "v2.11.1",
+  "upstream_commit": "67f88a8f422818aec28af4457b2a66a36a7b75d4",
   "upstream_repository": "https://github.com/ingres-si/ingressi.git",
-  "patched_tree": "106ae542b6566edcbfb3060d2455b54d6f828f84"
+  "patched_tree": "d8ade7759fbe569e653df6852b94410335ebdaea"
 }

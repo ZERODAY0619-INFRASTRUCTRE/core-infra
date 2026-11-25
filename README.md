@@ -1,7 +1,7 @@
 # ICPM / PCPM Infrastructure
 
 이 저장소 하나에 배포 설정과 Caddy Proxy Manager 커스텀 패치를 관리한다.
-앱 원본은 공개 저장소의 **Ingressi v2.10.0 커밋**에 고정하고, 빌드 전에 패치를 적용한다.
+앱 원본은 공개 저장소의 **Ingressi v2.11.1 커밋**에 고정하고, 빌드 전에 패치를 적용한다.
 별도 앱 fork나 submodule은 필요 없다. 실제 환경설정은 루트 `.env` 하나다.
 
 ```sh
@@ -60,13 +60,27 @@ Push, Pull Request 및 Actions의 수동 실행에서 다음 검사를 수행한
 실제 `.env`나 GitHub Secrets 없이 공개 원본과 `.env.example`을 사용한다.
 이미지 게시·운영 배포는 수행하지 않으며, 브라우저 E2E나 운영 서비스 연결은 검증 범위에 포함하지 않는다.
 
-## Ingressi 2.10.0 및 Origin CA
+## Ingressi 2.11.1 및 Origin CA
 
-원본은 `ingres-si/ingressi`의 `f9b7e42fc82f0f5a20c9d6d8d212327c7b981380`에 고정한다.
-패치 9개는 기존 인증·Anubis 기능과 Fluent 2 파스텔 인터페이스를 포함한다.
-재구성된 앱 트리는 `106ae542b6566edcbfb3060d2455b54d6f828f84`다.
+원본은 `ingres-si/ingressi`의 `67f88a8f422818aec28af4457b2a66a36a7b75d4`에 고정한다.
+운영 패치는 기존 인증·Anubis 기능과 Fluent 2 파스텔 인터페이스를 포함한다.
+재구성된 앱 트리는 `d8ade7759fbe569e653df6852b94410335ebdaea`다.
 
 두 웹 서비스는 공개 Cloudflare Origin CA ECC 루트 인증서를 읽기 전용으로 마운트한다.
 `NODE_EXTRA_CA_CERTS`는 인증서 검증을 유지하면서 해당 CA를 신뢰하게 한다.
 서버 인증서와 개인키는 저장소에 포함하지 않는다. Cloudflare의 Full (strict) 설정과
 운영 서버의 Origin 인증서는 별도로 유지한다.
+
+## 2026-11-26 운영 버전
+
+엣지에는 Caddy 2.11.9, ClickHouse 26.9.39.7, Synapse 1.166.0 및 PostgreSQL 17.12를 배포했다. VPS는 Linux 7.0.0-44-generic으로 재부팅한 뒤 서비스 자동 시작을 확인했다. 두 서버의 Docker 버전은 29.10.1이다.
+
+| VPS 서비스 | 배포 버전 |
+| --- | --- |
+| 인증 | Authentik 2026.8.6, PostgreSQL 18.7 |
+| 관측 | Grafana 13.3.2, Loki 3.7.10, OpenTelemetry Collector 0.166.0, NGINX 1.31.10 |
+| MonitoRSS 저장소와 메시지 큐 | MongoDB 9.0.8, PostgreSQL 18.7, RabbitMQ 4.4.1, Redis 8.12.0 |
+
+기존 설치에서 구성을 렌더링하기 전에 로컬 환경 파일에 모니터링 클라이언트의 Tailscale 주소를 `METRICS_SCRAPER_IP`로, CPM Tailscale 컨테이너 주소를 `METRICS_LISTEN_IP`로 지정한다.
+
+`deployment/vps/<서비스>/compose.images.yml`은 해당 서비스의 기존 Compose 파일과 운영 오버라이드 뒤에 추가한다. 기존 볼륨·환경·서비스 정의가 필요하다. Grafana와 Authentik의 커스텀 이미지는 각 디렉터리에서 해당 오버라이드의 이미지 이름으로 빌드한다. Matrix 보안 이미지 레시피는 `deployment/matrix/`에 있다.

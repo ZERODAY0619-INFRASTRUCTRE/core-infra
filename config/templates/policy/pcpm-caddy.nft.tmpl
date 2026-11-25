@@ -6,7 +6,7 @@ table inet cpm {
         ct state established,related accept
         iifname "lo" ip saddr 127.0.0.1 accept
         # Preserve the collector source address across the Tailscale relay.
-        ip saddr 100.96.72.9 ip daddr 172.30.81.2 tcp dport 8925 counter accept
+        ip saddr @@METRICS_SCRAPER_IP@@ ip daddr 172.30.81.2 tcp dport 8925 counter accept
         ip saddr 100.64.0.0/10 tcp dport 9090 accept
         ip saddr 172.30.81.3 tcp dport 2019 accept
         tcp dport { 80, 443 } accept

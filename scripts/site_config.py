@@ -6,7 +6,7 @@ import re
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
-KEYS = ('PUBLIC_BIND_IP', 'HOST_TAILNET_IP', 'SSO_HOST', 'ANUBIS_PROTECTED_DOMAIN',
+KEYS = ('METRICS_SCRAPER_IP', 'METRICS_LISTEN_IP', 'PUBLIC_BIND_IP', 'HOST_TAILNET_IP', 'SSO_HOST', 'ANUBIS_PROTECTED_DOMAIN',
         'AUTHENTIK_UPSTREAM_IP', 'AUTHENTIK_UPSTREAM_PORT', 'AUTHENTIK_TLS_INSECURE')
 
 def settings(env_file, environ=None):
@@ -30,12 +30,12 @@ def validate(values):
     for key in KEYS:
         if not values.get(key):
             raise ValueError('Missing site setting: ' + key)
-    for key in ('PUBLIC_BIND_IP', 'HOST_TAILNET_IP', 'AUTHENTIK_UPSTREAM_IP'):
+    for key in ('METRICS_SCRAPER_IP', 'METRICS_LISTEN_IP', 'PUBLIC_BIND_IP', 'HOST_TAILNET_IP', 'AUTHENTIK_UPSTREAM_IP'):
         try:
             address = ipaddress.IPv4Address(values[key])
             if address.is_unspecified or address.is_multicast or address.is_loopback or address.is_link_local or str(address) == '255.255.255.255':
                 raise ValueError()
-            if key == 'HOST_TAILNET_IP' and address not in ipaddress.ip_network('100.64.0.0/10'):
+            if key in ('METRICS_SCRAPER_IP', 'METRICS_LISTEN_IP', 'HOST_TAILNET_IP') and address not in ipaddress.ip_network('100.64.0.0/10'):
                 raise ValueError()
         except ValueError:
             raise ValueError('Invalid IPv4 setting: ' + key) from None

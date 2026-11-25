@@ -11,10 +11,13 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 SECRET_KEY = re.compile(r'SECRET|PASSWORD|TOKEN|AUTHKEY|PRIVATE_KEY|LICENSE_KEY', re.I)
-SITE_KEYS = {'PUBLIC_BIND_IP', 'HOST_TAILNET_IP', 'SSO_HOST', 'ANUBIS_PROTECTED_DOMAIN', 'AUTHENTIK_UPSTREAM_IP'}
+SITE_KEYS = {'METRICS_SCRAPER_IP', 'METRICS_LISTEN_IP', 'PUBLIC_BIND_IP', 'HOST_TAILNET_IP', 'SSO_HOST', 'ANUBIS_PROTECTED_DOMAIN', 'AUTHENTIK_UPSTREAM_IP'}
 # Immutable upstream Cypress fixture: test/cypress/fixtures/test.example.com-key.pem.
 # Allow only this already-public test key, never arbitrary PEM files or paths.
-PUBLIC_TEST_KEY_BLOBS = {"307cdc307be49b78be4004a754c74a9c2fdb344e"}
+PUBLIC_TEST_KEY_BLOBS = {
+    "307cdc307be49b78be4004a754c74a9c2fdb344e",
+    "3657b8c379f52a167d48a12af396ff575c9eccad",  # Ingressi v2.11.1 PEM validation fixture.
+}
 PATTERNS = [
     re.compile(rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----\r?\n[A-Za-z0-9+/]{40}'),
     re.compile(rb'\bgh[pousr]_[A-Za-z0-9]{36,}\b'),

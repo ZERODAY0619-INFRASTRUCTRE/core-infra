@@ -1,9 +1,1 @@
-0001-fix-preserve-TOMORI-customizations-on-Ingressi-v2.10.0.patch
-0002-feat-redesign-shared-interface-with-Fluent-2-styling.patch
-0003-fix-align-switch-thumb-with-Fluent-track-dimensions.patch
-0004-feat-simplify-proxy-host-protection-and-certificate-presentation.patch
-0005-test-verify-compact-protection-and-readable-certificate-expiry.patch
-0006-fix-align-shared-controls-and-WAF-status-presentation.patch
-0007-feat-soften-interface-colors-with-an-accessible-pastel-palette.patch
-0008-fix-refine-pastel-contrast-against-production-surfaces.patch
-0009-fix-contain-request-log-labels-within-the-scroll-area.patch
+0001-feat-preserve-TOMORI-protection-and-status-tooling-on-Ingressi-2.11.1.patch

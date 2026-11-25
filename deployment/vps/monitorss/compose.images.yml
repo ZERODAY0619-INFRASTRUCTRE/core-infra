@@ -1,0 +1,25 @@
+services:
+  monolith:
+    image: ghcr.io/synzen/monitorss-monolith@sha256:217d00f5d30706448000b35407f228f2ade7f6ef9e5e1f9df408866ca624e093
+  schedule-emitter-service:
+    image: ghcr.io/synzen/monitorss-monolith@sha256:217d00f5d30706448000b35407f228f2ade7f6ef9e5e1f9df408866ca624e093
+  bot-presence-service:
+    image: ghcr.io/synzen/monitorss-bot-presence@sha256:dd78af6509877e3d4e2efd23eb519a1300341d75a4559f5083fb5174e098729a
+  user-feeds-service:
+    image: ghcr.io/synzen/monitorss-user-feeds@sha256:57e1a1ac0ce942e7572455d61034ec1148f31a427c470b5911cedf11e797ce42
+  user-feeds-postgres-migration:
+    image: ghcr.io/synzen/monitorss-user-feeds@sha256:57e1a1ac0ce942e7572455d61034ec1148f31a427c470b5911cedf11e797ce42
+  feed-requests-service:
+    image: monitorss-feed-requests:7.5.0-os-patch-20261119
+  feed-requests-postgres-migration:
+    image: monitorss-feed-requests:7.5.0-os-patch-20261119
+  discord-rest-listener-service:
+    image: ghcr.io/synzen/monitorss-discord-rest-listener@sha256:5a959b5c8eeecfcbc828b9f72359a30e54db3320b8bc7b2c424e00a41c645ef0
+  mongo:
+    image: mongo:9.0.8
+  rabbitmq-broker:
+    image: rabbitmq:4.4.1-management-alpine
+  feed-requests-postgres-db:
+    image: postgres:18.7-alpine
+  feed-requests-redis-cache:
+    image: redis:8.12.0-alpine

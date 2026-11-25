@@ -1,0 +1,13 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.16.0
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.166.0
+  source-nginx:
+    image: nginx:1.31.10
+  telemetry-gateway:
+    image: nginx:1.31.10
+  loki:
+    image: grafana/loki:3.7.10
+  grafana:
+    image: infra-update-20261101/grafana-home-guard:13.3.2

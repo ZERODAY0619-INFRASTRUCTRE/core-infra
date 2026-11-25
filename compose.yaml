@@ -6,7 +6,7 @@ x-guard: &guard
     # BuildKit bridge DNS fails on this host; only build RUN uses host networking.
     network: host
     entitlements: [network.host]
-  image: cpm-netguard:security-20261024
+  image: cpm-netguard:os-patch-20261119
   restart: "no"
   cap_drop: [ALL]
   cap_add: [NET_ADMIN]
@@ -58,7 +58,7 @@ services:
       pcpm: {ipv4_address: 172.30.81.4}
 
   tailscale:
-    image: tailscale/tailscale@sha256:b11583ad2e93e4671128538c88cf11f460444a5d7e449311dd1933a400ab849d
+    image: tailscale/tailscale@sha256:72c1e19e0aedca96b8533bbb0b4368564410ff20b17e53b804eb6c1f04a31be4
     restart: "no"
     network_mode: service:tailscale-net
     cap_drop: [ALL]
@@ -360,7 +360,7 @@ services:
 
   icpm-clickhouse:
     <<: *app
-    image: cpm-clickhouse:26.8.2.7-security-20261024
+    image: cpm-clickhouse:26.9.39.7-security-20261126
     profiles: [clickhouse]
     user: "101:101"
     network_mode: service:icpm-web-net
@@ -387,7 +387,7 @@ services:
 
   pcpm-clickhouse:
     <<: *app
-    image: cpm-clickhouse:26.8.2.7-security-20261024
+    image: cpm-clickhouse:26.9.39.7-security-20261126
     profiles: [clickhouse]
     user: "101:101"
     network_mode: service:pcpm-web-net
@@ -414,7 +414,7 @@ services:
 
   icpm-geoipupdate:
     <<: *app
-    image: cpm-geoipupdate:8.0.0-security-go-20261024
+    image: cpm-geoipupdate:8.0.0-security-go-20261119
     profiles: [geoipupdate]
     read_only: true
     tmpfs: [/tmp]
@@ -435,7 +435,7 @@ services:
 
   pcpm-geoipupdate:
     <<: *app
-    image: cpm-geoipupdate:8.0.0-security-go-20261024
+    image: cpm-geoipupdate:8.0.0-security-go-20261119
     profiles: [geoipupdate]
     read_only: true
     tmpfs: [/tmp]

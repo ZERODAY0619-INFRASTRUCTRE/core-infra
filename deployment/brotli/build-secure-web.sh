@@ -8,7 +8,8 @@ revision=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["patc
 # Security dependency pins are included in the exported source patch series.
 docker build --network "${CPM_BUILD_NETWORK:-host}" \
   --label "org.opencontainers.image.revision=$revision" \
-  --label "org.opencontainers.image.version=${APP_VERSION:-2.10.0+tomori.$revision}" \
-  --build-arg "APP_VERSION=${APP_VERSION:-2.10.0+tomori.$revision}" \
+  --label "org.opencontainers.image.version=${APP_VERSION:-2.11.1+tomori.$revision}" \
+  --build-arg "APP_VERSION=${APP_VERSION:-2.11.1+tomori.$revision}" \
   -f "$source_directory/docker/web/Dockerfile" \
-  -t "${1:-cpm-web:$revision}" "$source_directory"
+  -t "${1:-cpm-web:$revision}-base" "$source_directory"
+docker build --network "${CPM_BUILD_NETWORK:-host}" --build-arg "BASE_IMAGE=${1:-cpm-web:$revision}-base" -f "$script_directory/web-runtime-security.Dockerfile" -t "${1:-cpm-web:$revision}" "$script_directory"

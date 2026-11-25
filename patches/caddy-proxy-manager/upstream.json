@@ -1,49 +1,17 @@
 {
   "repository": "https://github.com/ingres-si/ingressi.git",
-  "version": "2.10.0",
-  "commit": "f9b7e42fc82f0f5a20c9d6d8d212327c7b981380",
+  "version": "2.11.1",
+  "commit": "67f88a8f422818aec28af4457b2a66a36a7b75d4",
   "format": "git-format-patch",
   "revision": 1,
   "author": "zeroday0619 <escha@zeroday0619.dev>",
   "patches": [
     {
-      "file": "0001-fix-preserve-TOMORI-customizations-on-Ingressi-v2.10.0.patch",
-      "sha256": "b3cca9c7386c6964df6dcbb716ea47f5e77a6b773b11b8a5b28b6fdf251ed6e6"
-    },
-    {
-      "file": "0002-feat-redesign-shared-interface-with-Fluent-2-styling.patch",
-      "sha256": "24ad9cf033bf655fd0e5907c22694ab22ca333c0609256da75393d5a01b08c9b"
-    },
-    {
-      "file": "0003-fix-align-switch-thumb-with-Fluent-track-dimensions.patch",
-      "sha256": "40c6dd745d5a89fe3ed182029193490865ddca76d8b40b942c3456cd4d64974b"
-    },
-    {
-      "file": "0004-feat-simplify-proxy-host-protection-and-certificate-presentation.patch",
-      "sha256": "072936ee0b3a1a65d2cc018d00ee155f7e0744b4625e7170f331eec6409beca1"
-    },
-    {
-      "file": "0005-test-verify-compact-protection-and-readable-certificate-expiry.patch",
-      "sha256": "12e16c70689b7daf7d0a738767294889027f614149669780183c0ebaae86b7f4"
-    },
-    {
-      "file": "0006-fix-align-shared-controls-and-WAF-status-presentation.patch",
-      "sha256": "7d5cc6d95b717ed9cdb7f8bff94e8aca03af39c06a8346b03a2ed6e8424a71b7"
-    },
-    {
-      "file": "0007-feat-soften-interface-colors-with-an-accessible-pastel-palette.patch",
-      "sha256": "4a0923a78638901e7b0b48b1ff96f68ae3d1668fd240476af9a4704947a68a10"
-    },
-    {
-      "file": "0008-fix-refine-pastel-contrast-against-production-surfaces.patch",
-      "sha256": "d75bcc7a336f24e2174257e960fcac7eb0a7a8983db58a1825f49a7a4d96381c"
-    },
-    {
-      "file": "0009-fix-contain-request-log-labels-within-the-scroll-area.patch",
-      "sha256": "cedc5e8f3176130218f93181e88c790eaf66771eb4fd6e2832e7eee16802ade6"
+      "file": "0001-feat-preserve-TOMORI-protection-and-status-tooling-on-Ingressi-2.11.1.patch",
+      "sha256": "be8cf908a8d9241c617fb678aad827559eb6f6e265af609d47c2584693d04b45"
     }
   ],
   "cover_letter": "0000-cover-letter.patch",
-  "cover_letter_sha256": "a4e6a58c47512b8c3ad544fedfbe51eb3014c481d34f8903d75f4d27d9ba03d5",
-  "patched_tree": "106ae542b6566edcbfb3060d2455b54d6f828f84"
+  "cover_letter_sha256": "a5fa6785a3695d0dbc47762731aab9708491f9a3a2b91d788e6bedaf62724715",
+  "patched_tree": "d8ade7759fbe569e653df6852b94410335ebdaea"
 }
